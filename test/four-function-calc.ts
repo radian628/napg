@@ -62,13 +62,8 @@ const bindingPowers = {
 const parselet = makeParseletBuilder<ParseState, ErrorNode>();
 
 const consequentExpressionParselet = parselet<ExpressionNode>((p) => {
-  const left = p.state.left as PositionedNode;
-
   const first = p.lex(op);
-
-  const operator = first.match;
-
-  const nextBindingPower = bindingPowers[operator];
+  const nextBindingPower = bindingPowers[first.match];
 
   // operator precedence of next binary op is too low,
   // so exit early
@@ -76,8 +71,8 @@ const consequentExpressionParselet = parselet<ExpressionNode>((p) => {
 
   return {
     type: "BinaryOp",
-    op: operator,
-    left,
+    op: first.match,
+    left: p.state.left as PositionedNode,
     right: p.parse(expressionParselet, {
       bindingPower: nextBindingPower,
     }),
