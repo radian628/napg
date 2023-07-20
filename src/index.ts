@@ -1,348 +1,117 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-interface ImmutableTokenBuilder {
-  // if this function outputs a string, it's matched it
-  // and then it advances along
-  match(
-    against: string | string[] | RegExp
-  ): [ImmutableTokenBuilder, string] | [ImmutableTokenBuilder, undefined];
+import {
+  Lexer,
+  Parselet,
+  Parser,
+  Positioned,
+  Token,
+  position,
+} from "./immutable-api.js";
 
-  isNext<Output>(
-    tkn: TokenSpec<Output>
-  ): [ImmutableTokenBuilder, false] | [ImmutableTokenBuilder, true, Output];
+export {
+  Token,
+  Parselet,
+  Lexer,
+  Parser,
+  parserFromLexer,
+  lexerFromString,
+  position,
+  Positioned,
+} from "./immutable-api.js";
 
-  position(): number;
+export function pos<T extends Positioned>(t: T) {
+  return t[position];
 }
 
-export interface TokenBuilder {
-  // if this function outputs a string, it's matched it
-  // and then it advances along
-  match(against: string | string[] | RegExp): string | undefined;
+export interface MutableLexerInterface<ErrorMessage = string> {
+  match(symbol: string | string[] | RegExp): string | undefined;
+  err(msg: ErrorMessage): never;
 }
 
-export type TokenSpec<Output> = {
-  // either output true and a converted token or false
-  // tokens can create whatever output they want so that custom tokens
-  // can contain any data they please
-  match(input: TokenBuilder): [true, Output] | [false];
-};
-
-interface ImmutableParseInput<
-  ErrorNodeType,
-  ParseState,
-  ErrorMessageType = string
-> {
-  expect<Output>(
-    token: TokenSpec<Output>,
-    errorMessage: ErrorMessageType
-  ): [Output, ImmutableParseInput<ErrorNodeType, ParseState, ErrorMessageType>];
-  readonly errorState: boolean;
-  readonly parseState: ParseState;
-  position(): number;
-  clone(): ImmutableParseInput<ErrorNodeType, ParseState, ErrorMessageType>;
-}
-
-export interface ParseInput<
-  ErrorNodeType,
-  ErrorMessageType = string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ErrorNodeInput extends any[] = [string]
-> {
-  // expect the given token type to occur next
-  // throws an error if it doesn't
-  expect<Output>(
-    token: TokenSpec<Output>,
-    errorMessage: ErrorMessageType
-  ): Output;
-  position(): number;
-  errorState: boolean;
-  pushState(): void;
-  popState(): void;
-  err(...input: ErrorNodeInput): ErrorNodeType;
-}
-
-type LexingInfo = {
-  start: number;
-  end: number;
-};
-
-type Positioned<
-  ParseNodeType,
-  Property extends string | symbol | number = "pos"
-> = ParseNodeType & {
-  [key in Property]: LexingInfo;
-};
-
-export type ParseletSpec<
-  State,
-  Output,
-  ErrorNodeType,
-  ErrorMessageType = string,
-  ErrorNodeInput extends any[] = [string]
-> = {
-  // parse
-  parse(
-    input: ParseInput<ErrorNodeType, ErrorMessageType, ErrorNodeInput>,
-    state: State
-  ): Output;
-};
-
-export function parselet<
-  State,
-  Output,
-  ErrorNodeType,
-  ErrorMessageType = string,
-  ErrorNodeInput extends any[] = [string]
->(
-  parse: (
-    input: ParseInput<ErrorNodeType, ErrorMessageType, ErrorNodeInput>,
-    state: State
-  ) => Output
-) {
-  return { parse };
-}
-
-export function token(matcher: string | string[] | RegExp): TokenSpec<string> {
+export function token<TokenType = string, ErrorMessage = string>(
+  fn: (lexer: MutableLexerInterface<ErrorMessage>) => TokenType
+): Token<TokenType, ErrorMessage> {
   return {
-    match(input) {
-      const match = input.match(matcher);
-      return match ? [true, match] : [false];
+    type: "token",
+    lex(lexer) {
+      let newLexer = lexer as Lexer;
+      const output = fn({
+        match(symbol) {
+          const [output, lexer2] = newLexer.match(symbol);
+          newLexer = lexer2;
+          return output;
+        },
+        err: (msg) => lexer.err(msg),
+      });
+      return [output, newLexer];
     },
   };
 }
 
-export function makeImmutableTokenBuilder(
-  input: string,
-  stringpos: number
-): ImmutableTokenBuilder {
+export interface MutableParserInterface<
+  State,
+  ErrorType,
+  ErrorMessage = string
+> {
+  parse<OutputType>(
+    symbol: Parselet<OutputType, State, ErrorType, ErrorMessage>,
+    state: State
+  ): (OutputType & Positioned) | (ErrorType & Positioned);
+  lex<OutputType>(
+    symbol: Token<OutputType, ErrorMessage>
+  ): OutputType | ErrorType;
+  err(msg: ErrorMessage): never;
+  isErr<OutputType>(node: OutputType | ErrorType): node is ErrorType;
+  state: State;
+  positionify<OutputType>(t: OutputType): OutputType & Positioned;
+  isNext<OutputType>(symbol: Token<OutputType, ErrorMessage>): boolean;
+}
+
+export function parselet<NodeType, State, ErrorType, ErrorMessage = string>(
+  fn: (
+    parser: MutableParserInterface<State, ErrorType, ErrorMessage>
+  ) => NodeType
+): Parselet<NodeType, State, ErrorType, ErrorMessage> {
   return {
-    position() {
-      return stringpos;
-    },
-
-    match(against: string | string[] | RegExp) {
-      if (typeof against === "string") {
-        if (against !== input.slice(stringpos, stringpos + against.length))
-          return [this, undefined];
-        return [
-          makeImmutableTokenBuilder(input, stringpos + against.length),
-          against,
-        ];
-      } else if (Array.isArray(against)) {
-        for (const entry of against) {
-          if (entry !== input.slice(stringpos, stringpos + entry.length))
-            continue;
-          return [
-            makeImmutableTokenBuilder(input, stringpos + entry.length),
-            entry,
-          ];
-        }
-        return [this, undefined];
-      } else {
-        const match = input.slice(stringpos).match(against);
-        if (!match || match.index !== 0) return [this, undefined];
-        return [
-          makeImmutableTokenBuilder(input, stringpos + match.length),
-          match[0],
-        ];
-      }
-    },
-
-    isNext<Output>(tkn: TokenSpec<Output>) {
-      // eslint-disable-next-line @typescript-eslint/no-this-alias
-      let nextImmutableTokenBuilder: ImmutableTokenBuilder = this;
-
-      const match = tkn.match({
-        match(against) {
-          const result = nextImmutableTokenBuilder.match(against);
-          nextImmutableTokenBuilder = result[0];
-          if (result[1]) return result[1];
+    type: "parselet",
+    parse(parser) {
+      const startPos = parser.position;
+      let newParser = parser as Parser<State, ErrorType, ErrorMessage>;
+      const output = fn({
+        parse(symbol, newState) {
+          const [output, parser2] = newParser.parse(symbol, newState);
+          const parser2Clone = parser2.clone();
+          parser2Clone.state = newParser.state;
+          newParser = parser2Clone;
+          return output;
+        },
+        lex(symbol) {
+          const [output, parser2] = newParser.lex(symbol);
+          newParser = parser2;
+          return output;
+        },
+        err: (msg) => parser.err(msg),
+        isErr: parser.isErr,
+        state: parser.state,
+        positionify(t) {
+          return {
+            ...t,
+            [position]: {
+              start: startPos,
+              end: newParser.position,
+            },
+          };
+        },
+        isNext(symbol) {
+          const [output] = newParser.lex(symbol);
+          return !parser.isErr(output);
         },
       });
-
-      if (match[0]) {
-        return [nextImmutableTokenBuilder, true, match[1]] as [
-          ImmutableTokenBuilder,
-          true,
-          Output
-        ];
-      } else {
-        return [nextImmutableTokenBuilder, false] as [
-          ImmutableTokenBuilder,
-          false
-        ];
-      }
+      //   const newParserClone = newParser.clone();
+      //   newParserClone.state = parser.state;
+      return [output, newParser];
     },
   };
 }
 
-export class ImmutableStringParseInput<
-  ErrorNodeType,
-  ParseState,
-  ErrorMessageType = string
-> implements ImmutableParseInput<ErrorNodeType, ParseState, ErrorMessageType>
-{
-  parseState: ParseState;
-  errorState: boolean;
-  tokens!: ImmutableTokenBuilder;
-  errorMessageToNode: (msg: ErrorMessageType) => ErrorNodeType;
-
-  constructor(
-    tokens: ImmutableTokenBuilder,
-    parseState: ParseState,
-    errorMessageToNode: (msg: ErrorMessageType) => ErrorNodeType
-  ) {
-    this.errorMessageToNode = errorMessageToNode;
-    this.tokens = tokens;
-    this.parseState = parseState;
-    this.errorState = false;
-  }
-
-  expect<Output>(
-    token: TokenSpec<Output>,
-    errorMessage: ErrorMessageType
-  ): [
-    Output,
-    ImmutableParseInput<ErrorNodeType, ParseState, ErrorMessageType>
-  ] {
-    const maybeToken = this.tokens.isNext(token);
-
-    this.errorState = true;
-    if (!maybeToken[1]) throw this.errorMessageToNode(errorMessage);
-
-    return [
-      maybeToken[2],
-      new ImmutableStringParseInput(
-        maybeToken[0],
-        this.parseState,
-        this.errorMessageToNode
-      ),
-    ];
-  }
-
-  position() {
-    return this.tokens.position();
-  }
-
-  clone() {
-    return new ImmutableStringParseInput(
-      this.tokens,
-      this.parseState,
-      this.errorMessageToNode
-    );
-  }
-}
-
-export class StringParseInput<
-  ErrorNodeType,
-  ParseState,
-  ErrorMessageType = string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ErrorNodeInput extends any[] = [string]
-> implements ParseInput<ErrorNodeType, ErrorMessageType, ErrorNodeInput>
-{
-  stateStack: ImmutableParseInput<
-    ErrorNodeType,
-    ParseState,
-    ErrorMessageType
-  >[];
-  errorState = false;
-
-  err: (...args: ErrorNodeInput) => ErrorNodeType;
-
-  constructor(
-    str: string,
-    initState: ParseState,
-    errorMessageToNode: (msg: ErrorMessageType) => ErrorNodeType,
-    err: (...args: ErrorNodeInput) => ErrorNodeType
-  ) {
-    this.stateStack = [
-      new ImmutableStringParseInput(
-        makeImmutableTokenBuilder(str, 0),
-        initState,
-        errorMessageToNode
-      ),
-    ];
-    this.err = err;
-  }
-
-  replaceTopOfStack(
-    ipi: ImmutableParseInput<ErrorNodeType, ParseState, ErrorMessageType>
-  ) {
-    this.stateStack[this.stateStack.length - 1] = ipi;
-  }
-
-  topOfStack() {
-    return this.stateStack[this.stateStack.length - 1];
-  }
-
-  expect<Output>(token: TokenSpec<Output>, errorMessage: ErrorMessageType) {
-    const output = this.topOfStack().expect(token, errorMessage);
-    this.replaceTopOfStack(output[1]);
-    return output[0];
-  }
-
-  position() {
-    return this.topOfStack().position();
-  }
-
-  pushState() {
-    this.stateStack.push(this.topOfStack().clone());
-  }
-
-  popState(): void {
-    this.stateStack.pop();
-  }
-}
-
-export function makeParseFn<
-  State,
-  ErrorNodeType,
-  PositionProp extends string | symbol | number = "pos"
->(settings: {
-  // parse node property for storing char position information
-  positionProperty: PositionProp;
-
-  // function for error handling when no other option is available
-  defaultErrorNode: (err: unknown) => ErrorNodeType;
-}): <Output>(
-  input: ParseInput<ErrorNodeType>,
-  parselet: ParseletSpec<State, Output, ErrorNodeType>,
-  state: State
-) =>
-  | Positioned<Output, PositionProp>
-  | Positioned<ErrorNodeType, PositionProp> {
-  return (input, parselet, state) => {
-    const start = input.position();
-    try {
-      // normal path (parse node properly)
-      input.errorState = false;
-      const parsedOutput = parselet.parse(input, state);
-      const end = input.position();
-      return {
-        ...parsedOutput,
-        [settings.positionProperty]: { start, end },
-      } as Positioned<typeof parsedOutput, PositionProp>;
-
-      // encounter error while parsing
-    } catch (err) {
-      const end = input.position();
-      let output: ErrorNodeType;
-
-      // if input is marked as encountering an error,
-      // then it threw an error node
-      if (input.errorState) {
-        output = err as ErrorNodeType;
-
-        // otherwise, some other (perhaps unintentional) error was thrown
-        // and the parser should fall back to defaultErrorNode
-      } else {
-        output = settings.defaultErrorNode(err);
-      }
-
-      return {
-        ...output,
-        [settings.positionProperty]: { start, end },
-      } as Positioned<ErrorNodeType, PositionProp>;
-    }
-  };
-}
+// TODO: Add lexer positioning info
+// TODO: Add "is this the next token?"

@@ -34,6 +34,7 @@ let ctx = await esbuild.context({
   ],
   sourcemap: isDev,
   format: "esm",
+  bundle: true,
 });
 
 ctx.watch();
