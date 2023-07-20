@@ -12,23 +12,23 @@ import {
 
 import { test, expect, describe } from "@jest/globals";
 
-const simpleToken = (
-  symbol: string | string[] | RegExp,
+const simpleToken = <T extends string>(
+  symbol: T | readonly T[] | RegExp,
   name: string
-): Token<TokenSuccess, string> => {
+): Token<TokenSuccess<T>, string> => {
   return token((lexer) => {
     const match = lexer.match(symbol);
     if (match === undefined) lexer.err(`Expected a ${name}.`);
     return {
       type: "Success",
-      match: match as string,
+      match: match as T,
     };
   });
 };
 
-type TokenSuccess = {
+type TokenSuccess<T extends string> = {
   type: "Success";
-  match: string;
+  match: T;
 };
 
 function lexAnyOf<TokenType, ErrorType, ErrorMessage>(
@@ -51,7 +51,7 @@ function lexAnyOf<TokenType, ErrorType, ErrorMessage>(
 }
 
 const num = simpleToken(/[0-9]+/, "number");
-const op = simpleToken(["+", "-", "*", "/"], "op");
+const op = simpleToken(["+", "-", "*", "/"] as const, "op");
 const openParen = simpleToken("(", "'('");
 const closeParen = simpleToken(")", "')'");
 
@@ -93,7 +93,7 @@ const consequentExpressionParselet: Parselet<
   ParseState,
   ErrorNode,
   string
-> = parselet<ExpressionNode | ErrorNode, ParseState, ErrorNode>((p) => {
+> = parselet((p) => {
   const left = p.state.left as PositionedNode;
 
   if (!p.isNext(op)) {
@@ -131,7 +131,7 @@ const initExpressionParselet: Parselet<
   ParseState,
   ErrorNode,
   string
-> = parselet<ExpressionNode | ErrorNode, ParseState, ErrorNode>((p) => {
+> = parselet((p) => {
   const first = lexAnyOf(p, [openParen, num], {
     type: "Error",
     reason: "Expected '(' or a number.",
@@ -167,16 +167,17 @@ const expressionParselet = parselet<
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const stateBefore = p.state;
+    const snapshot = p.getParserSnapshot();
 
     const nextParseNode = p.parse(consequentExpressionParselet, {
       bindingPower: p.state.bindingPower,
       left,
     });
 
-    expect(p.state).toEqual(stateBefore);
-
-    if (nextParseNode.type === "Error") break;
+    if (nextParseNode.type === "Error") {
+      p.setParserSnapshot(snapshot);
+      break;
+    }
 
     left = nextParseNode;
   }

@@ -21,6 +21,12 @@ export interface Parser<State, ErrorType, ErrorMessage = string> {
   state: State;
   position: number;
   clone(): Parser<State, ErrorType, ErrorMessage>;
+  options: {
+    makeErrorMessage: (msg: ErrorMessage) => ErrorType;
+    makeLexerError: (position: number) => ErrorType;
+    makeUnhandledError: (err: unknown) => ErrorType;
+    isErr: <OutputType>(node: OutputType | ErrorType) => node is ErrorType;
+  };
 }
 
 export interface ParserInterface<State, ErrorType, ErrorMessage = string>
@@ -30,7 +36,9 @@ export interface ParserInterface<State, ErrorType, ErrorMessage = string>
 }
 
 export interface Lexer {
-  match(symbol: string | string[] | RegExp): [string | undefined, Lexer];
+  match(
+    symbol: string | readonly string[] | RegExp
+  ): [string | undefined, Lexer];
   position: number;
 }
 
@@ -71,7 +79,7 @@ export function lexerFromString(input: string, position?: number): Lexer {
         for (const item of symbol) {
           if (input.slice(pos).startsWith(item)) return getReturnValue(item);
         }
-      } else {
+      } else if (typeof symbol === "string") {
         if (input.slice(pos).startsWith(symbol)) return getReturnValue(symbol);
       }
       return getReturnValue(undefined);
@@ -90,6 +98,7 @@ export function parserFromLexer<State, ErrorType, ErrorMessage = string>(
   }
 ): Parser<State, ErrorType, ErrorMessage> {
   return {
+    options,
     position: lexer.position,
     state,
     lex<OutputType>(symbol: Token<OutputType, ErrorMessage>) {
@@ -122,37 +131,25 @@ export function parserFromLexer<State, ErrorType, ErrorMessage = string>(
       symbol: Parselet<OutputType, State, ErrorType, ErrorMessage>,
       state: State
     ) {
-      let hasThrownExpectedError = false;
       const startPosition = this.position;
 
       // eslint-disable-next-line @typescript-eslint/no-this-alias
       let parserToReturn: Parser<State, ErrorType, ErrorMessage> = this;
-      let outputToReturn: OutputType | ErrorType;
 
-      try {
-        const parsedOutput = symbol.parse({
-          parse: this.parse,
-          lex: this.lex,
-          state,
-          err: (msg: ErrorMessage) => {
-            hasThrownExpectedError = true;
-            throw options.makeErrorMessage(msg);
-          },
-          position: this.position,
-          isErr: options.isErr,
-          clone: this.clone,
-        });
-        parserToReturn = options.isErr(parsedOutput[0])
-          ? this
-          : parsedOutput[1];
-        outputToReturn = parsedOutput[0];
-      } catch (err) {
-        if (hasThrownExpectedError) {
-          outputToReturn = err as ErrorType;
-        } else {
-          outputToReturn = options.makeUnhandledError(err);
-        }
-      }
+      const parsedOutput = symbol.parse({
+        parse: this.parse,
+        lex: this.lex,
+        state,
+        err: (msg: ErrorMessage) => {
+          throw options.makeErrorMessage(msg);
+        },
+        position: this.position,
+        isErr: options.isErr,
+        clone: this.clone,
+        options: this.options,
+      });
+      parserToReturn = parsedOutput[1];
+      const outputToReturn = parsedOutput[0];
 
       const endPosition = parserToReturn.position;
 

@@ -23,7 +23,7 @@ export function pos<T extends Positioned>(t: T) {
 }
 
 export interface MutableLexerInterface<ErrorMessage = string> {
-  match(symbol: string | string[] | RegExp): string | undefined;
+  match(symbol: string | readonly string[] | RegExp): string | undefined;
   err(msg: ErrorMessage): never;
 }
 
@@ -64,6 +64,8 @@ export interface MutableParserInterface<
   state: State;
   positionify<OutputType>(t: OutputType): OutputType & Positioned;
   isNext<OutputType>(symbol: Token<OutputType, ErrorMessage>): boolean;
+  getParserSnapshot(): Parser<State, ErrorType, ErrorMessage>;
+  setParserSnapshot(snapshot: Parser<State, ErrorType, ErrorMessage>): void;
 }
 
 export function parselet<NodeType, State, ErrorType, ErrorMessage = string>(
@@ -76,39 +78,59 @@ export function parselet<NodeType, State, ErrorType, ErrorMessage = string>(
     parse(parser) {
       const startPos = parser.position;
       let newParser = parser as Parser<State, ErrorType, ErrorMessage>;
-      const output = fn({
-        parse(symbol, newState) {
-          const [output, parser2] = newParser.parse(symbol, newState);
-          const parser2Clone = parser2.clone();
-          parser2Clone.state = newParser.state;
-          newParser = parser2Clone;
-          return output;
-        },
-        lex(symbol) {
-          const [output, parser2] = newParser.lex(symbol);
-          newParser = parser2;
-          return output;
-        },
-        err: (msg) => parser.err(msg),
-        isErr: parser.isErr,
-        state: parser.state,
-        positionify(t) {
-          return {
-            ...t,
-            [position]: {
-              start: startPos,
-              end: newParser.position,
-            },
-          };
-        },
-        isNext(symbol) {
-          const [output] = newParser.lex(symbol);
-          return !parser.isErr(output);
-        },
-      });
-      //   const newParserClone = newParser.clone();
-      //   newParserClone.state = parser.state;
-      return [output, newParser];
+      let encounteredErrNormally = false;
+      try {
+        const output = fn({
+          parse(symbol, newState) {
+            const [output, parser2] = newParser.parse(symbol, newState);
+            const parser2Clone = parser2.clone();
+            parser2Clone.state = newParser.state;
+            newParser = parser2Clone;
+            return output;
+          },
+          lex(symbol) {
+            const [output, parser2] = newParser.lex(symbol);
+            newParser = parser2;
+            return output;
+          },
+          err: (msg) => {
+            encounteredErrNormally = true;
+            return parser.err(msg);
+          },
+          isErr: parser.isErr,
+          state: parser.state,
+          positionify(t) {
+            return {
+              ...t,
+              [position]: {
+                start: startPos,
+                end: newParser.position,
+              },
+            };
+          },
+          isNext(symbol) {
+            const [output] = newParser.lex(symbol);
+            return !parser.isErr(output);
+          },
+          getParserSnapshot() {
+            return newParser;
+          },
+          setParserSnapshot(snapshot) {
+            newParser = snapshot;
+          },
+        });
+        //   const newParserClone = newParser.clone();
+        //   newParserClone.state = parser.state;
+        return [output, newParser];
+      } catch (err) {
+        if (encounteredErrNormally) {
+          const errAsNode = err as ErrorType;
+          return [errAsNode, newParser];
+        } else {
+          const errAsNode = newParser.options.makeUnhandledError(err);
+          return [errAsNode, newParser];
+        }
+      }
     },
   };
 }

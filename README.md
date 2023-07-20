@@ -1,4 +1,4 @@
-# NAPG - Not Another Parser Generator
+# NAPG - Not Another Parser Generator!
 
 NAPG is a library for making recursive-descent parsers _in_ TypeScript, _with_ TypeScript. Its design goals are as follows:
 
