@@ -2,6 +2,7 @@ import {
   Lexer,
   Parselet,
   Parser,
+  ParserGenerics,
   Positioned,
   Token,
   position,
@@ -16,20 +17,21 @@ export {
   lexerFromString,
   position,
   Positioned,
+  ParserGenerics,
 } from "./immutable-api.js";
 
 export function pos<T extends Positioned>(t: T) {
   return t[position];
 }
 
-export interface MutableLexerInterface<ErrorMessage = string> {
+export interface MutableLexerInterface<G extends ParserGenerics> {
   match(symbol: string | readonly string[] | RegExp): string | undefined;
-  err(msg: ErrorMessage): never;
+  err(msg: G["ErrorMessage"]): never;
 }
 
-export function token<TokenType = string, ErrorMessage = string>(
-  fn: (lexer: MutableLexerInterface<ErrorMessage>) => TokenType
-): Token<TokenType, ErrorMessage> {
+export function token<TokenType, G extends ParserGenerics>(
+  fn: (lexer: MutableLexerInterface<G>) => TokenType
+): Token<TokenType, G> {
   return {
     type: "token",
     lex(lexer) {
@@ -47,55 +49,51 @@ export function token<TokenType = string, ErrorMessage = string>(
   };
 }
 
-export interface MutableParserInterface<
-  State,
-  ErrorType,
-  ErrorMessage = string
-> {
-  parse<OutputType>(
-    symbol: Parselet<OutputType, State, ErrorType, ErrorMessage>,
-    state: State
-  ): (OutputType & Positioned) | (ErrorType & Positioned);
-  lex<OutputType>(symbol: Token<OutputType, ErrorMessage>): OutputType;
+export interface MutableParserInterface<G extends ParserGenerics> {
+  parse<G2 extends ParserGenerics>(
+    symbol: Parselet<G2>,
+    state: G2["State"]
+  ): (G2["MyOutputType"] & Positioned) | (G["Error"] & Positioned);
+  lex<OutputType>(symbol: Token<OutputType, G>): OutputType;
   lexFirstMatch<OutputType>(
-    tokens: Token<OutputType, ErrorMessage>[],
-    fallbackErrorMessage: ErrorMessage
+    tokens: Token<OutputType, G>[],
+    fallbackErrorMessage: G["ErrorMessage"]
   ): OutputType;
-  err(msg: ErrorMessage): never;
-  isErr<OutputType>(node: OutputType | ErrorType): node is ErrorType;
-  state: State;
+  err(msg: G["ErrorMessage"]): never;
+  isErr<OutputType>(node: OutputType | G["Error"]): node is G["Error"];
+  state: G["State"];
   positionify<OutputType>(t: OutputType): OutputType & Positioned;
-  isNext<OutputType>(symbol: Token<OutputType, ErrorMessage>): boolean;
-  getParserSnapshot(): Parser<State, ErrorType, ErrorMessage>;
-  setParserSnapshot(snapshot: Parser<State, ErrorType, ErrorMessage>): void;
+  isNext<OutputType>(symbol: Token<OutputType, G>): boolean;
+  getParserSnapshot(): Parser<G>;
+  setParserSnapshot(snapshot: Parser<G>): void;
 }
 
-export function makeParseletBuilder<State, ErrorType, ErrorMessage = string>() {
-  return <NodeType>(
+export function makeParseletBuilder<
+  G extends Exclude<ParserGenerics, "MyOutputType" | "State">
+>() {
+  return <NodeType extends object, State>(
     fn: (
-      parser: MutableParserInterface<State, ErrorType, ErrorMessage>
-    ) => NodeType | ErrorType
+      parser: MutableParserInterface<
+        G & { MyOutputType: NodeType; State: State }
+      >
+    ) => NodeType | G["Error"]
   ) => parselet(fn);
 }
 
-export function parselet<NodeType, State, ErrorType, ErrorMessage = string>(
-  fn: (
-    parser: MutableParserInterface<State, ErrorType, ErrorMessage>
-  ) => NodeType
-): Parselet<NodeType, State, ErrorType, ErrorMessage> {
+export function parselet<G extends ParserGenerics>(
+  fn: (parser: MutableParserInterface<G>) => G["MyOutputType"] | G["Error"]
+): Parselet<G> {
   return {
     type: "parselet",
     parse(parser) {
       const startPos = parser.position;
-      let newParser = parser as Parser<State, ErrorType, ErrorMessage>;
+      let newParser = parser as Parser<G>;
       let encounteredErrNormally = false;
       try {
         const output = fn({
           parse(symbol, newState) {
             const [output, parser2] = newParser.parse(symbol, newState);
-            const parser2Clone = parser2.clone();
-            parser2Clone.state = newParser.state;
-            newParser = parser2Clone;
+            newParser = parser2;
             return output;
           },
           lex(symbol) {
@@ -147,7 +145,7 @@ export function parselet<NodeType, State, ErrorType, ErrorMessage = string>(
         return [output, newParser];
       } catch (err) {
         if (encounteredErrNormally) {
-          const errAsNode = err as ErrorType;
+          const errAsNode = err as G["Error"];
           return [errAsNode, newParser];
         } else {
           const errAsNode = newParser.options.makeUnhandledError(err);
@@ -162,9 +160,9 @@ export const simpleTokenSpecBuilder =
   <
     TokenStringKey extends string | symbol | number,
     TokenSuccess,
-    ErrorMessage = string
+    G extends ParserGenerics
   >(
-    generateErrorMessage: (name: string) => ErrorMessage,
+    generateErrorMessage: (name: string) => G["ErrorMessage"],
     generateSuccess: <T extends string>(
       match: T
     ) => TokenSuccess & { [K in TokenStringKey]: T }
@@ -172,7 +170,7 @@ export const simpleTokenSpecBuilder =
   <T extends string>(
     symbol: T | readonly T[] | RegExp,
     name: string
-  ): Token<TokenSuccess & { [K in TokenStringKey]: T }, ErrorMessage> => {
+  ): Token<TokenSuccess & { [K in TokenStringKey]: T }, G> => {
     return token((lexer) => {
       const match = lexer.match(symbol);
       if (match === undefined) lexer.err(generateErrorMessage(name));

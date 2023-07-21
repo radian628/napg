@@ -7,32 +7,56 @@ export type Positioned = {
   };
 };
 
-export interface Parser<State, ErrorType, ErrorMessage = string> {
-  parse<OutputType>(
-    symbol: Parselet<OutputType, State, ErrorType, ErrorMessage>,
-    state: State
-  ): [
-    (OutputType & Positioned) | (ErrorType & Positioned),
-    Parser<State, ErrorType, ErrorMessage>
-  ];
-  lex<OutputType>(
-    symbol: Token<OutputType, ErrorMessage>
-  ): [OutputType | ErrorType, Parser<State, ErrorType, ErrorMessage>];
-  state: State;
-  position: number;
-  clone(): Parser<State, ErrorType, ErrorMessage>;
-  options: {
-    makeErrorMessage: (msg: ErrorMessage) => ErrorType;
-    makeLexerError: (position: number) => ErrorType;
-    makeUnhandledError: (err: unknown) => ErrorType;
-    isErr: <OutputType>(node: OutputType | ErrorType) => node is ErrorType;
-  };
-}
+export type ParserGenerics = {
+  State: unknown;
+  Error: object;
+  ErrorMessage: unknown;
+  SkipToken: unknown;
+  MyOutputType: object;
+};
 
-export interface ParserInterface<State, ErrorType, ErrorMessage = string>
-  extends Parser<State, ErrorType, ErrorMessage> {
-  err(msg: ErrorMessage): never;
-  isErr<OutputType>(node: OutputType | ErrorType): node is ErrorType;
+export type ParserOptions<
+  G extends {
+    ErrorMessage: unknown;
+    Error: object;
+  }
+> = {
+  makeErrorMessage: (msg: G["ErrorMessage"]) => G["Error"];
+  makeLexerError: (position: number) => G["Error"];
+  makeUnhandledError: (err: unknown) => G["Error"];
+  isErr: <OutputType>(node: OutputType | G["Error"]) => node is G["Error"];
+};
+
+export type ChangeParserGenerics<
+  G extends ParserGenerics,
+  Node,
+  State
+> = Exclude<G, "MyOutputType" | "State"> & {
+  MyOutputType: Node;
+  State: State;
+};
+
+export interface Parser<G extends ParserGenerics> {
+  parse<G2 extends ParserGenerics>(
+    symbol: Parselet<G2>,
+    state: G2["State"]
+  ): [
+    (G2["MyOutputType"] & Positioned) | (G2["Error"] & Positioned),
+    Parser<G>
+  ];
+  lex<TokenType>(
+    symbol: Token<TokenType, G>
+  ): [TokenType | G["Error"], Parser<G>];
+  state: G["State"];
+  position: number;
+  clone<G2 extends ParserGenerics>(
+    parselet: Parselet<G2>,
+    state: G2["State"]
+  ): Parser<G2>;
+  options: ParserOptions<G>;
+  parselet: Parselet<G>;
+  err(msg: G["ErrorMessage"]): never;
+  isErr<OutputType>(node: OutputType | G["Error"]): node is G["Error"];
 }
 
 export interface Lexer {
@@ -48,15 +72,13 @@ export interface LexerInterface<ErrorMessage = string> extends Lexer {
 
 export type TokenFn<TokenType> = (lexer: Lexer) => TokenType;
 
-export type Token<TokenType, ErrorMessage> = {
-  lex(lexer: LexerInterface<ErrorMessage>): [TokenType, Lexer];
+export type Token<TokenType, G extends ParserGenerics> = {
+  lex(lexer: LexerInterface<G["ErrorMessage"]>): [TokenType, Lexer];
   type: "token";
 };
 
-export type Parselet<NodeType, State, ErrorType, ErrorMessage> = {
-  parse(
-    parser: ParserInterface<State, ErrorType, ErrorMessage>
-  ): [NodeType | ErrorType, Parser<State, ErrorType, ErrorMessage>];
+export type Parselet<G extends ParserGenerics> = {
+  parse(parser: Parser<G>): [G["MyOutputType"] | G["Error"], Parser<G>];
   type: "parselet";
 };
 
@@ -87,67 +109,67 @@ export function lexerFromString(input: string, position?: number): Lexer {
   };
 }
 
-export function parserFromLexer<State, ErrorType, ErrorMessage = string>(
+export function parserFromLexer<G extends ParserGenerics>(
   lexer: Lexer,
-  state: State,
-  options: {
-    makeErrorMessage: (msg: ErrorMessage) => ErrorType;
-    makeLexerError: (position: number) => ErrorType;
-    makeUnhandledError: (err: unknown) => ErrorType;
-    isErr: <OutputType>(node: OutputType | ErrorType) => node is ErrorType;
-  }
-): Parser<State, ErrorType, ErrorMessage> {
+  state: G["State"],
+  parselet: Parselet<G>,
+  options: ParserOptions<{
+    ErrorMessage: G["ErrorMessage"];
+    Error: G["Error"];
+  }>
+): Parser<G> {
   return {
+    err(msg: G["ErrorMessage"]) {
+      throw options.makeErrorMessage(msg);
+    },
+    isErr: options.isErr,
+    parselet,
     options,
     position: lexer.position,
     state,
-    lex<OutputType>(symbol: Token<OutputType, ErrorMessage>) {
+    lex<NodeType>(symbol: Token<NodeType, G>) {
       let hasThrownExpectedError = false;
 
       try {
         const [data, newLexer] = symbol.lex({
           match: lexer.match,
-          err: (msg: ErrorMessage) => {
+          err: (msg: G["ErrorMessage"]) => {
             hasThrownExpectedError = true;
             throw options.makeErrorMessage(msg);
           },
           position: lexer.position,
         });
-        const newParser = parserFromLexer(newLexer, this.state, options);
+        const newParser = parserFromLexer(
+          newLexer,
+          this.state,
+          this.parselet,
+          options
+        );
         return [data, newParser];
       } catch (err) {
         if (hasThrownExpectedError) {
-          const knownErr = err as ErrorType;
+          const knownErr = err as G["Error"];
           return [knownErr, this];
         } else {
           return [options.makeUnhandledError(err), this];
         }
       }
     },
-    clone() {
-      return parserFromLexer(lexer, this.state, options);
+    clone(parselet, state) {
+      return parserFromLexer(lexer, state, parselet, options);
     },
-    parse<OutputType>(
-      symbol: Parselet<OutputType, State, ErrorType, ErrorMessage>,
-      state: State
-    ) {
+    parse<
+      Node,
+      State,
+      P extends Parselet<ChangeParserGenerics<G, Node, State>>
+    >(symbol: P, state: State) {
       const startPosition = this.position;
 
       // eslint-disable-next-line @typescript-eslint/no-this-alias
-      let parserToReturn: Parser<State, ErrorType, ErrorMessage> = this;
+      let parserToReturn: Parser<G> = this;
 
-      const parsedOutput = symbol.parse({
-        parse: this.parse,
-        lex: this.lex,
-        state,
-        err: (msg: ErrorMessage) => {
-          throw options.makeErrorMessage(msg);
-        },
-        position: this.position,
-        isErr: options.isErr,
-        clone: this.clone,
-        options: this.options,
-      });
+      const parsedOutput = symbol.parse(this.clone(symbol, state));
+
       parserToReturn = parsedOutput[1];
       const outputToReturn = parsedOutput[0];
 
@@ -166,3 +188,14 @@ export function parserFromLexer<State, ErrorType, ErrorMessage = string>(
     },
   };
 }
+
+// function runLUT<
+//   LUT extends Record<
+//     string | number | symbol,
+//     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+//     (...params: any[]) => any
+//   >,
+//   Key extends keyof LUT
+// >(lut: LUT, key: Key, ...params: Parameters<LUT[Key]>) {
+//   return lut[key](params);
+// }

@@ -11,7 +11,50 @@ type TokenSuccess<T extends string> = {
   match: T;
 };
 
-const simpleToken = simpleTokenSpecBuilder<"match", { type: "Success" }>(
+type NumberNode = {
+  type: "Number";
+  number: number;
+};
+
+type BinaryOpNode = {
+  type: "BinaryOp";
+  left: PositionedNode;
+  right: PositionedNode;
+  op: "+" | "-" | "*" | "/";
+};
+
+type ExpressionNode = NumberNode | BinaryOpNode;
+
+type ErrorNode = {
+  type: "Error";
+  reason: string;
+};
+
+type InitParseState = {
+  bindingPower: number;
+};
+
+type ConsequentParseState = InitParseState & {
+  left: PositionedNode;
+};
+
+type Node = ExpressionNode | ErrorNode;
+
+export type PositionedNode = Node & Positioned;
+
+export type ParserTypes = {
+  MyOutputType: ExpressionNode;
+  State: InitParseState;
+  Error: ErrorNode;
+  ErrorMessage: string;
+  SkipToken: TokenSuccess<string>;
+};
+
+const simpleToken = simpleTokenSpecBuilder<
+  "match",
+  { type: "Success" },
+  ParserTypes
+>(
   (name) => `Expected a ${name}`,
   <T extends string>(match: T) => {
     return {
@@ -26,32 +69,6 @@ const op = simpleToken(["+", "-", "*", "/"] as const, "op");
 const openParen = simpleToken("(", "'('");
 const closeParen = simpleToken(")", "')'");
 
-type ExpressionNode =
-  | {
-      type: "Number";
-      number: number;
-    }
-  | {
-      type: "BinaryOp";
-      left: PositionedNode;
-      right: PositionedNode;
-      op: "+" | "-" | "*" | "/";
-    };
-
-type ErrorNode = {
-  type: "Error";
-  reason: string;
-};
-
-type ParseState = {
-  bindingPower: number;
-  left?: PositionedNode;
-};
-
-type Node = ExpressionNode | ErrorNode;
-
-export type PositionedNode = Node & Positioned;
-
 const bindingPowers = {
   "+": 1,
   "-": 1,
@@ -59,9 +76,12 @@ const bindingPowers = {
   "/": 2,
 };
 
-const parselet = makeParseletBuilder<ParseState, ErrorNode>();
+const parselet = makeParseletBuilder<ParserTypes>();
 
-const consequentExpressionParselet = parselet<ExpressionNode>((p) => {
+const consequentExpressionParselet = parselet<
+  ExpressionNode,
+  ConsequentParseState
+>((p) => {
   const first = p.lex(op);
   const nextBindingPower = bindingPowers[first.match];
 
@@ -72,14 +92,14 @@ const consequentExpressionParselet = parselet<ExpressionNode>((p) => {
   return {
     type: "BinaryOp",
     op: first.match,
-    left: p.state.left as PositionedNode,
+    left: p.state.left,
     right: p.parse(expressionParselet, {
       bindingPower: nextBindingPower,
     }),
   };
 });
 
-const initExpressionParselet = parselet<ExpressionNode>((p) => {
+const initExpressionParselet = parselet<ExpressionNode, InitParseState>((p) => {
   const first = p.lexFirstMatch([openParen, num], "Expected '(' or a number.");
 
   // parenthesized
@@ -99,34 +119,37 @@ const initExpressionParselet = parselet<ExpressionNode>((p) => {
   }
 });
 
-export const expressionParselet = parselet<ExpressionNode>((p) => {
-  let left = p.parse(initExpressionParselet, p.state);
+export const expressionParselet = parselet<ExpressionNode, InitParseState>(
+  (p) => {
+    let left = p.parse(initExpressionParselet, p.state);
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const snapshot = p.getParserSnapshot();
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const snapshot = p.getParserSnapshot();
 
-    const nextParseNode = p.parse(consequentExpressionParselet, {
-      bindingPower: p.state.bindingPower,
-      left,
-    });
+      const nextParseNode = p.parse(consequentExpressionParselet, {
+        bindingPower: p.state.bindingPower,
+        left,
+      });
 
-    if (nextParseNode.type === "Error") {
-      p.setParserSnapshot(snapshot);
-      break;
+      if (nextParseNode.type === "Error") {
+        p.setParserSnapshot(snapshot);
+        break;
+      }
+
+      left = nextParseNode;
     }
 
-    left = nextParseNode;
+    return left;
   }
-
-  return left;
-});
+);
 
 export function ffcParser(src: string) {
   const lexer = lexerFromString(src);
-  return parserFromLexer<ParseState, ErrorNode>(
+  return parserFromLexer<ParserTypes>(
     lexer,
-    { bindingPower: 0, left: undefined },
+    { bindingPower: 0 },
+    expressionParselet,
     {
       makeErrorMessage(msg) {
         return { type: "Error", reason: msg } satisfies ErrorNode;

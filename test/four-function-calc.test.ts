@@ -12,7 +12,6 @@ function parseFFC(src: string) {
 
   const parserOutput = parser.parse(expressionParselet, {
     bindingPower: 0,
-    left: undefined,
   });
 
   return parserOutput[0];
