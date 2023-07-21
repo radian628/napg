@@ -79,8 +79,8 @@ const bindingPowers = {
 const parselet = makeParseletBuilder<ParserTypes>();
 
 const consequentExpressionParselet = parselet<
-  ExpressionNode,
-  ConsequentParseState
+  ConsequentParseState,
+  BinaryOpNode
 >((p) => {
   const first = p.lex(op);
   const nextBindingPower = bindingPowers[first.match];
@@ -99,7 +99,7 @@ const consequentExpressionParselet = parselet<
   };
 });
 
-const initExpressionParselet = parselet<ExpressionNode, InitParseState>((p) => {
+const initExpressionParselet = parselet<InitParseState, ExpressionNode>((p) => {
   const first = p.lexFirstMatch([openParen, num], "Expected '(' or a number.");
 
   // parenthesized
@@ -119,7 +119,7 @@ const initExpressionParselet = parselet<ExpressionNode, InitParseState>((p) => {
   }
 });
 
-export const expressionParselet = parselet<ExpressionNode, InitParseState>(
+export const expressionParselet = parselet<InitParseState, ExpressionNode>(
   (p) => {
     let left = p.parse(initExpressionParselet, p.state);
 

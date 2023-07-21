@@ -71,7 +71,7 @@ export interface MutableParserInterface<G extends ParserGenerics> {
 export function makeParseletBuilder<
   G extends Exclude<ParserGenerics, "MyOutputType" | "State">
 >() {
-  return <NodeType extends object, State>(
+  return <State, NodeType extends object>(
     fn: (
       parser: MutableParserInterface<
         G & { MyOutputType: NodeType; State: State }

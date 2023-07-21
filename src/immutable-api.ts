@@ -188,14 +188,3 @@ export function parserFromLexer<G extends ParserGenerics>(
     },
   };
 }
-
-// function runLUT<
-//   LUT extends Record<
-//     string | number | symbol,
-//     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-//     (...params: any[]) => any
-//   >,
-//   Key extends keyof LUT
-// >(lut: LUT, key: Key, ...params: Parameters<LUT[Key]>) {
-//   return lut[key](params);
-// }
