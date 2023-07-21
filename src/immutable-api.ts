@@ -1,9 +1,15 @@
 export const position = Symbol("position");
 
-export type Positioned = {
+export const skipTokens = Symbol("skipTokens");
+
+export type Positioned<G extends ParserGenerics> = {
   [position]: {
     start: number;
     end: number;
+  };
+  [skipTokens]: {
+    before: G["SkipToken"][];
+    after: G["SkipToken"][];
   };
 };
 
@@ -36,12 +42,14 @@ export type ChangeParserGenerics<
   State: State;
 };
 
+export type SkipTokensOf<G extends ParserGenerics> = Token<G["SkipToken"], G>[];
+
 export interface Parser<G extends ParserGenerics> {
   parse<G2 extends ParserGenerics>(
     symbol: Parselet<G2>,
     state: G2["State"]
   ): [
-    (G2["MyOutputType"] & Positioned) | (G2["Error"] & Positioned),
+    (G2["MyOutputType"] & Positioned<G2>) | (G2["Error"] & Positioned<G2>),
     Parser<G>
   ];
   lex<TokenType>(
@@ -57,6 +65,7 @@ export interface Parser<G extends ParserGenerics> {
   parselet: Parselet<G>;
   err(msg: G["ErrorMessage"]): never;
   isErr<OutputType>(node: OutputType | G["Error"]): node is G["Error"];
+  skipTokens: SkipTokensOf<G>;
 }
 
 export interface Lexer {
@@ -74,12 +83,13 @@ export type TokenFn<TokenType> = (lexer: Lexer) => TokenType;
 
 export type Token<TokenType, G extends ParserGenerics> = {
   lex(lexer: LexerInterface<G["ErrorMessage"]>): [TokenType, Lexer];
-  type: "token";
 };
 
 export type Parselet<G extends ParserGenerics> = {
-  parse(parser: Parser<G>): [G["MyOutputType"] | G["Error"], Parser<G>];
-  type: "parselet";
+  parse(
+    parser: Parser<G>,
+    skipTokens: G["SkipToken"][]
+  ): [G["MyOutputType"] | G["Error"], Parser<G>];
 };
 
 export function lexerFromString(input: string, position?: number): Lexer {
@@ -96,7 +106,7 @@ export function lexerFromString(input: string, position?: number): Lexer {
     match(symbol) {
       if (symbol instanceof RegExp) {
         const match = input.slice(pos).match(symbol);
-        if (match) return getReturnValue(match[0]);
+        if (match && match.index === 0) return getReturnValue(match[0]);
       } else if (Array.isArray(symbol)) {
         for (const item of symbol) {
           if (input.slice(pos).startsWith(item)) return getReturnValue(item);
@@ -109,16 +119,45 @@ export function lexerFromString(input: string, position?: number): Lexer {
   };
 }
 
+export function eliminateSkipTokens<G extends ParserGenerics>(
+  parser: Parser<G>,
+  skipTokens: G["SkipToken"][]
+) {
+  let parserToReturn = parser;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    let breakAfterThis = true;
+    for (const token of parserToReturn.skipTokens) {
+      try {
+        const output = parserToReturn.lex(token);
+        if (parserToReturn.isErr(output[0])) continue;
+        skipTokens.push(output[0]);
+        parserToReturn = output[1];
+        breakAfterThis = false;
+        break;
+      } catch {
+        /* empty */
+      }
+    }
+    if (breakAfterThis) break;
+  }
+
+  return parserToReturn;
+}
+
 export function parserFromLexer<G extends ParserGenerics>(
   lexer: Lexer,
   state: G["State"],
   parselet: Parselet<G>,
+  skipTokensList: SkipTokensOf<G>,
   options: ParserOptions<{
     ErrorMessage: G["ErrorMessage"];
     Error: G["Error"];
   }>
 ): Parser<G> {
   return {
+    skipTokens: skipTokensList,
     err(msg: G["ErrorMessage"]) {
       throw options.makeErrorMessage(msg);
     },
@@ -143,6 +182,7 @@ export function parserFromLexer<G extends ParserGenerics>(
           newLexer,
           this.state,
           this.parselet,
+          this.skipTokens,
           options
         );
         return [data, newParser];
@@ -156,24 +196,67 @@ export function parserFromLexer<G extends ParserGenerics>(
       }
     },
     clone(parselet, state) {
-      return parserFromLexer(lexer, state, parselet, options);
+      return parserFromLexer(lexer, state, parselet, this.skipTokens, options);
     },
     parse<
       Node,
       State,
       P extends Parselet<ChangeParserGenerics<G, Node, State>>
     >(symbol: P, state: State) {
-      const startPosition = this.position;
-
       // eslint-disable-next-line @typescript-eslint/no-this-alias
       let parserToReturn: Parser<G> = this;
 
-      const parsedOutput = symbol.parse(this.clone(symbol, state));
+      const startPosition = parserToReturn.position;
+
+      const skipTokensBefore: G["SkipToken"][] = [];
+
+      const skipTokensAfter: G["SkipToken"][] = [];
+
+      // eslint-disable-next-line no-constant-condition
+      // while (true) {
+      //   let breakAfterThis = true;
+      //   for (const token of parserToReturn.skipTokens) {
+      //     try {
+      //       const output = parserToReturn.lex(token);
+      //       if (parserToReturn.isErr(output[0])) continue;
+      //       skipTokensBefore.push(output[0]);
+      //       parserToReturn = output[1];
+      //       breakAfterThis = false;
+      //       break;
+      //     } catch {
+      //       /* empty */
+      //     }
+      //   }
+      //   if (breakAfterThis) break;
+      // }
+
+      parserToReturn = eliminateSkipTokens(parserToReturn, skipTokensBefore);
+
+      // const actualNodeStartPosition = parserToReturn.position;
+
+      const parsedOutput = symbol.parse(
+        parserToReturn.clone(symbol, state),
+        skipTokensAfter
+      );
 
       parserToReturn = parsedOutput[1];
-      const outputToReturn = parsedOutput[0];
+      const outputToReturn2 = parsedOutput[0];
+      const outputToReturn = outputToReturn2 as typeof outputToReturn2 &
+        Positioned<G>;
+
+      parserToReturn = eliminateSkipTokens(parserToReturn, skipTokensAfter);
 
       const endPosition = parserToReturn.position;
+
+      const beforeSkipTokens = [
+        ...skipTokensBefore,
+        ...(outputToReturn?.[skipTokens]?.before ?? []),
+      ];
+
+      const afterSkipTokens = [
+        ...skipTokensAfter,
+        ...(outputToReturn?.[skipTokens]?.after ?? []),
+      ];
 
       return [
         {
@@ -181,6 +264,10 @@ export function parserFromLexer<G extends ParserGenerics>(
           [position]: {
             start: startPosition,
             end: endPosition,
+          },
+          [skipTokens]: {
+            before: beforeSkipTokens,
+            after: afterSkipTokens,
           },
         },
         parserToReturn,

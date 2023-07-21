@@ -1,4 +1,4 @@
-import { position } from "../dist";
+import { position, skipTokens } from "../dist";
 
 import { test, expect, describe } from "@jest/globals";
 import {
@@ -51,25 +51,31 @@ function ffcTest(code: string) {
 }
 
 describe("four function calc", () => {
-  test("123", () => {
-    const parserOutput = parseFFC("123");
-
-    expect(evalFFC(parserOutput)).toEqual(123);
+  test("   123", () => {
+    const parserOutput = parseFFC("   123");
 
     expect(parserOutput).toEqual({
       type: "Number",
       number: 123,
       [position]: {
         start: 0,
-        end: 3,
+        end: 6,
+      },
+      [skipTokens]: {
+        before: [
+          {
+            type: "Success",
+            match: "   ",
+          },
+        ],
+        after: [],
       },
     });
+    expect(evalFFC(parserOutput)).toEqual(123);
   });
 
-  test("1+2", () => {
-    const parserOutput = parseFFC("1+2");
-
-    expect(evalFFC(parserOutput)).toEqual(3);
+  test(" 1 + 2 ", () => {
+    const parserOutput = parseFFC(" 1 + 2 ");
 
     expect(parserOutput).toEqual({
       type: "BinaryOp",
@@ -77,30 +83,64 @@ describe("four function calc", () => {
         type: "Number",
         number: 1,
         [position]: {
-          start: 0,
-          end: 1,
+          start: 1,
+          end: 3,
+        },
+        [skipTokens]: {
+          before: [],
+          after: [
+            {
+              type: "Success",
+              match: " ",
+            },
+          ],
         },
       },
       right: {
         type: "Number",
         number: 2,
         [position]: {
-          start: 2,
-          end: 3,
+          start: 4,
+          end: 7,
+        },
+        [skipTokens]: {
+          before: [
+            {
+              type: "Success",
+              match: " ",
+            },
+          ],
+          after: [
+            {
+              type: "Success",
+              match: " ",
+            },
+          ],
         },
       },
       op: "+",
       [position]: {
         start: 0,
-        end: 3,
+        end: 7,
+      },
+      [skipTokens]: {
+        before: [
+          {
+            type: "Success",
+            match: " ",
+          },
+        ],
+        after: [],
       },
     });
+
+    expect(evalFFC(parserOutput)).toEqual(3);
   });
 
   const testCases = [
     "1*2+3",
     "1+2*3",
-    "(1+2)*3",
+    "  (1+   2)*3",
     "1-2*3+4",
     "1+2-3*4+((5+6)*3*4/(2-1))",
   ];
@@ -108,6 +148,4 @@ describe("four function calc", () => {
   for (const t of testCases) {
     ffcTest(t);
   }
-
-  console.log(parseFFC("1+(2*6"));
 });

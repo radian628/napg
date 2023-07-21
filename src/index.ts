@@ -5,6 +5,7 @@ import {
   ParserGenerics,
   Positioned,
   Token,
+  eliminateSkipTokens,
   position,
 } from "./immutable-api.js";
 
@@ -18,9 +19,10 @@ export {
   position,
   Positioned,
   ParserGenerics,
+  skipTokens,
 } from "./immutable-api.js";
 
-export function pos<T extends Positioned>(t: T) {
+export function pos<T extends Positioned<never>>(t: T) {
   return t[position];
 }
 
@@ -33,7 +35,6 @@ export function token<TokenType, G extends ParserGenerics>(
   fn: (lexer: MutableLexerInterface<G>) => TokenType
 ): Token<TokenType, G> {
   return {
-    type: "token",
     lex(lexer) {
       let newLexer = lexer as Lexer;
       const output = fn({
@@ -53,7 +54,7 @@ export interface MutableParserInterface<G extends ParserGenerics> {
   parse<G2 extends ParserGenerics>(
     symbol: Parselet<G2>,
     state: G2["State"]
-  ): (G2["MyOutputType"] & Positioned) | (G["Error"] & Positioned);
+  ): (G2["MyOutputType"] & Positioned<G>) | (G["Error"] & Positioned<G>);
   lex<OutputType>(symbol: Token<OutputType, G>): OutputType;
   lexFirstMatch<OutputType>(
     tokens: Token<OutputType, G>[],
@@ -62,7 +63,6 @@ export interface MutableParserInterface<G extends ParserGenerics> {
   err(msg: G["ErrorMessage"]): never;
   isErr<OutputType>(node: OutputType | G["Error"]): node is G["Error"];
   state: G["State"];
-  positionify<OutputType>(t: OutputType): OutputType & Positioned;
   isNext<OutputType>(symbol: Token<OutputType, G>): boolean;
   getParserSnapshot(): Parser<G>;
   setParserSnapshot(snapshot: Parser<G>): void;
@@ -84,9 +84,7 @@ export function parselet<G extends ParserGenerics>(
   fn: (parser: MutableParserInterface<G>) => G["MyOutputType"] | G["Error"]
 ): Parselet<G> {
   return {
-    type: "parselet",
-    parse(parser) {
-      const startPos = parser.position;
+    parse(parser, skipTokens) {
       let newParser = parser as Parser<G>;
       let encounteredErrNormally = false;
       try {
@@ -97,6 +95,8 @@ export function parselet<G extends ParserGenerics>(
             return output;
           },
           lex(symbol) {
+            newParser = eliminateSkipTokens(newParser, skipTokens);
+
             const [output, parser2] = newParser.lex(symbol);
             newParser = parser2;
             if (newParser.options.isErr(output)) {
@@ -111,15 +111,6 @@ export function parselet<G extends ParserGenerics>(
           },
           isErr: parser.isErr,
           state: parser.state,
-          positionify(t) {
-            return {
-              ...t,
-              [position]: {
-                start: startPos,
-                end: newParser.position,
-              },
-            };
-          },
           isNext(symbol) {
             const [output] = newParser.lex(symbol);
             return !parser.isErr(output);

@@ -40,14 +40,14 @@ type ConsequentParseState = InitParseState & {
 
 type Node = ExpressionNode | ErrorNode;
 
-export type PositionedNode = Node & Positioned;
+export type PositionedNode = Node & Positioned<ParserTypes>;
 
 export type ParserTypes = {
   MyOutputType: ExpressionNode;
   State: InitParseState;
   Error: ErrorNode;
   ErrorMessage: string;
-  SkipToken: TokenSuccess<string>;
+  SkipToken: { type: "Success"; match: string };
 };
 
 const simpleToken = simpleTokenSpecBuilder<
@@ -68,6 +68,7 @@ const num = simpleToken(/[0-9]+/, "number");
 const op = simpleToken(["+", "-", "*", "/"] as const, "op");
 const openParen = simpleToken("(", "'('");
 const closeParen = simpleToken(")", "')'");
+const whitespace = simpleToken(/\s+/, "whitespace");
 
 const bindingPowers = {
   "+": 1,
@@ -150,6 +151,7 @@ export function ffcParser(src: string) {
     lexer,
     { bindingPower: 0 },
     expressionParselet,
+    [whitespace],
     {
       makeErrorMessage(msg) {
         return { type: "Error", reason: msg } satisfies ErrorNode;
