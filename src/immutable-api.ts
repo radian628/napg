@@ -212,27 +212,7 @@ export function parserFromLexer<G extends ParserGenerics>(
 
       const skipTokensAfter: G["SkipToken"][] = [];
 
-      // eslint-disable-next-line no-constant-condition
-      // while (true) {
-      //   let breakAfterThis = true;
-      //   for (const token of parserToReturn.skipTokens) {
-      //     try {
-      //       const output = parserToReturn.lex(token);
-      //       if (parserToReturn.isErr(output[0])) continue;
-      //       skipTokensBefore.push(output[0]);
-      //       parserToReturn = output[1];
-      //       breakAfterThis = false;
-      //       break;
-      //     } catch {
-      //       /* empty */
-      //     }
-      //   }
-      //   if (breakAfterThis) break;
-      // }
-
       parserToReturn = eliminateSkipTokens(parserToReturn, skipTokensBefore);
-
-      // const actualNodeStartPosition = parserToReturn.position;
 
       const parsedOutput = symbol.parse(
         parserToReturn.clone(symbol, state),
