@@ -22,30 +22,41 @@ export {
   skipTokens,
 } from "./immutable-api.js";
 
+export { Rope, RopeBranch, RopeLeaf, RopeIter, RopeIterMut } from "./rope.js";
+
 export function pos<T extends Positioned<never>>(t: T) {
   return t[position];
 }
 
 export interface MutableLexerInterface<G extends ParserGenerics> {
-  match(symbol: string | readonly string[] | RegExp): string | undefined;
+  next(n: number): string;
+  prev(n: number): void;
   err(msg: G["ErrorMessage"]): never;
 }
 
 export function token<TokenType, G extends ParserGenerics>(
-  fn: (lexer: MutableLexerInterface<G>) => TokenType
+  fn: (iter: MutableLexerInterface<G>) => TokenType
 ): Token<TokenType, G> {
   return {
     lex(lexer) {
-      let newLexer = lexer as Lexer;
+      let nextLexer = lexer as Lexer;
+
       const output = fn({
-        match(symbol) {
-          const [output, lexer2] = newLexer.match(symbol);
-          newLexer = lexer2;
-          return output;
+        next(n) {
+          const [str, lexer2] = nextLexer.next(n);
+          nextLexer = lexer2;
+          return str;
         },
-        err: (msg) => lexer.err(msg),
+        prev(n) {
+          const l = nextLexer.prev(n);
+          nextLexer = l;
+        },
+        err(msg: G["ErrorMessage"]) {
+          throw lexer.err(msg);
+        },
       });
-      return [output, newLexer];
+
+      return [output, nextLexer];
     },
   };
 }
@@ -103,6 +114,7 @@ export function parselet<G extends ParserGenerics>(
               encounteredErrNormally = true;
               throw output;
             }
+
             return output;
           },
           err: (msg) => {
@@ -147,24 +159,24 @@ export function parselet<G extends ParserGenerics>(
   };
 }
 
-export const simpleTokenSpecBuilder =
-  <
-    TokenStringKey extends string | symbol | number,
-    TokenSuccess,
-    G extends ParserGenerics
-  >(
-    generateErrorMessage: (name: string) => G["ErrorMessage"],
-    generateSuccess: <T extends string>(
-      match: T
-    ) => TokenSuccess & { [K in TokenStringKey]: T }
-  ) =>
-  <T extends string>(
-    symbol: T | readonly T[] | RegExp,
-    name: string
-  ): Token<TokenSuccess & { [K in TokenStringKey]: T }, G> => {
-    return token((lexer) => {
-      const match = lexer.match(symbol);
-      if (match === undefined) lexer.err(generateErrorMessage(name));
-      return generateSuccess(match as T);
-    });
-  };
+// export const simpleTokenSpecBuilder =
+//   <
+//     TokenStringKey extends string | symbol | number,
+//     TokenSuccess,
+//     G extends ParserGenerics
+//   >(
+//     generateErrorMessage: (name: string) => G["ErrorMessage"],
+//     generateSuccess: <T extends string>(
+//       match: T
+//     ) => TokenSuccess & { [K in TokenStringKey]: T }
+//   ) =>
+//   <T extends string>(
+//     symbol: T | readonly T[] | RegExp,
+//     name: string
+//   ): Token<TokenSuccess & { [K in TokenStringKey]: T }, G> => {
+//     return token((lexer) => {
+//       const match = lexer.match(symbol);
+//       if (match === undefined) lexer.err(generateErrorMessage(name));
+//       return generateSuccess(match as T);
+//     });
+//   };

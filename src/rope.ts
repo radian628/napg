@@ -22,10 +22,7 @@ export class RopeLeaf {
   }
 
   iter(idx: number): RopeIter {
-    return {
-      index: idx,
-      node: this,
-    };
+    return new RopeIter(this, idx);
   }
 
   startIndex() {
@@ -46,6 +43,48 @@ export class RopeLeaf {
   str() {
     return this.data;
   }
+
+  nextLeaf(): RopeLeaf | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let rope: Rope | undefined = this;
+
+    // go up the tree until the current node is a left child
+    while (rope === rope?.parent?.right) {
+      rope = rope.parent;
+    }
+
+    // go right once and then left as many times as possible
+    // in order to reach the next leaf
+    rope = rope.parent;
+    if (rope) {
+      rope = rope.right;
+      while (!(rope instanceof RopeLeaf)) {
+        rope = rope.left;
+      }
+      return rope;
+    }
+  }
+
+  prevLeaf(): RopeLeaf | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let rope: Rope | undefined = this;
+
+    // go up the tree until the current node is a right child
+    while (rope === rope?.parent?.left) {
+      rope = rope.parent;
+    }
+
+    // go left once and then right as many times as possible
+    // in order to reach the prev leaf
+    rope = rope.parent;
+    if (rope) {
+      rope = rope.left;
+      while (!(rope instanceof RopeLeaf)) {
+        rope = rope.right;
+      }
+      return rope;
+    }
+  }
 }
 
 export class RopeBranch {
@@ -64,9 +103,14 @@ export class RopeBranch {
 
     this.countToLeft = 0;
     let nodeToSum = left;
-    while (typeof nodeToSum.data !== "string") {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
       this.countToLeft += nodeToSum.countToLeft;
-      nodeToSum = nodeToSum.right;
+      if (typeof nodeToSum.data !== "string") {
+        nodeToSum = nodeToSum.right;
+      } else {
+        break;
+      }
     }
   }
 
@@ -115,7 +159,7 @@ export class RopeBranch {
       const [first, second] = this.left.split(idx);
       return [first, new RopeBranch(second, this.right)];
     } else if (idx > this.countToLeft) {
-      const [first, second] = this.right.split(idx);
+      const [first, second] = this.right.split(idx - this.countToLeft);
       return [new RopeBranch(this.left, first), second];
     } else {
       return [this.left, this.right];
@@ -141,7 +185,83 @@ export function replace(
   };
 }
 
-export type RopeIter = {
-  index: number;
-  node: RopeLeaf;
-};
+export class RopeIter {
+  rope: RopeLeaf;
+  pos: number;
+
+  constructor(rope: RopeLeaf, pos: number) {
+    this.rope = rope;
+    this.pos = pos;
+  }
+
+  read(n: number): [string, RopeIter] {
+    const nextIter = new RopeIter(this.rope, this.pos);
+
+    let readString = "";
+    while (n > 0) {
+      const unrestrictedRemainingCount =
+        nextIter.rope.str().length - nextIter.pos;
+      const remainingCount = Math.min(n, unrestrictedRemainingCount);
+      readString += nextIter.rope
+        .str()
+        .slice(nextIter.pos, remainingCount + nextIter.pos);
+      nextIter.pos = remainingCount + nextIter.pos;
+      n -= remainingCount;
+
+      if (n > 0) {
+        nextIter.pos = 0;
+        const nextLeaf = nextIter.rope.nextLeaf();
+        if (!nextLeaf) {
+          nextIter.pos = nextIter.rope.str().length;
+          break;
+        }
+        nextIter.rope = nextLeaf;
+      }
+    }
+
+    return [readString, nextIter];
+  }
+
+  prev(n: number): RopeIter {
+    const prevIter = new RopeIter(this.rope, this.pos);
+
+    while (n > 0) {
+      const remaining = prevIter.pos;
+      if (remaining >= n) {
+        prevIter.pos -= n;
+        n = 0;
+      } else {
+        n -= prevIter.pos;
+        const prevLeaf = prevIter.rope.prevLeaf();
+        if (!prevLeaf) {
+          prevIter.pos = 0;
+          break;
+        }
+        prevIter.rope = prevLeaf;
+        prevIter.pos = prevIter.rope.str().length - 1;
+      }
+    }
+
+    return prevIter;
+  }
+}
+
+export class RopeIterMut {
+  iter: RopeIter;
+
+  constructor(iter: RopeIter) {
+    this.iter = iter;
+  }
+
+  read(n: number) {
+    const [readString, nextIter] = this.iter.read(n);
+    this.iter = nextIter;
+
+    return readString;
+  }
+
+  prev(n: number) {
+    const prevIter = this.iter.prev(n);
+    this.iter = prevIter;
+  }
+}

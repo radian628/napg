@@ -1,9 +1,10 @@
 import {
   Positioned,
+  RopeLeaf,
   lexerFromString,
   makeParseletBuilder,
   parserFromLexer,
-  simpleTokenSpecBuilder,
+  token,
 } from "../dist";
 
 type TokenSuccess<T extends string> = {
@@ -50,25 +51,53 @@ export type ParserTypes = {
   SkipToken: { type: "Success"; match: string };
 };
 
-const simpleToken = simpleTokenSpecBuilder<
-  "match",
-  { type: "Success" },
-  ParserTypes
->(
-  (name) => `Expected a ${name}`,
-  <T extends string>(match: T) => {
+// const num = simpleToken(/[0-9]+/, "number");
+// const op = simpleToken(["+", "-", "*", "/"] as const, "op");
+// const openParen = simpleToken("(", "'('");
+// const closeParen = simpleToken(")", "')'");
+// const whitespace = simpleToken(/\s+/, "whitespace");
+
+function charToken<T extends string>(alts: readonly T[]) {
+  return token<TokenSuccess<T>, ParserTypes>((lexer) => {
+    const tkn = lexer.next(1);
+    if ((alts as readonly string[]).includes(tkn)) {
+      return {
+        type: "Success",
+        match: tkn as T,
+      };
+    } else {
+      throw lexer.err(
+        `Expected one of ${alts.map((a) => `'${a}'`).join(", ")}`
+      );
+    }
+  });
+}
+
+const op = charToken(["+", "-", "*", "/"]);
+const openParen = charToken(["("]);
+const closeParen = charToken([")"]);
+const num = token((lexer) => {
+  let num = "";
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const char = lexer.next(1);
+    if (char.match(/\d/)) {
+      num += char;
+    } else {
+      lexer.prev(char.length);
+      break;
+    }
+  }
+  if (num) {
     return {
       type: "Success",
-      match,
-    } satisfies TokenSuccess<T>;
+      match: num,
+    };
+  } else {
+    throw lexer.err("Expected a number.");
   }
-);
-
-const num = simpleToken(/[0-9]+/, "number");
-const op = simpleToken(["+", "-", "*", "/"] as const, "op");
-const openParen = simpleToken("(", "'('");
-const closeParen = simpleToken(")", "')'");
-const whitespace = simpleToken(/\s+/, "whitespace");
+});
+const whitespace = charToken([" ", "\n"]);
 
 const bindingPowers = {
   "+": 1,
@@ -146,7 +175,7 @@ export const expressionParselet = parselet<InitParseState, ExpressionNode>(
 );
 
 export function ffcParser(src: string) {
-  const lexer = lexerFromString(src);
+  const lexer = lexerFromString(new RopeLeaf(src).iter(0));
   return parserFromLexer<ParserTypes>(
     lexer,
     { bindingPower: 0 },

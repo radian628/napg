@@ -1,11 +1,13 @@
+import { RopeIter } from "./rope.js";
+
 export const position = Symbol("position");
 
 export const skipTokens = Symbol("skipTokens");
 
 export type Positioned<G extends ParserGenerics> = {
   [position]: {
-    start: number;
-    end: number;
+    start: RopeIter;
+    end: RopeIter;
   };
   [skipTokens]: {
     before: G["SkipToken"][];
@@ -56,7 +58,7 @@ export interface Parser<G extends ParserGenerics> {
     symbol: Token<TokenType, G>
   ): [TokenType | G["Error"], Parser<G>];
   state: G["State"];
-  position: number;
+  position: RopeIter;
   clone<G2 extends ParserGenerics>(
     parselet: Parselet<G2>,
     state: G2["State"]
@@ -69,10 +71,9 @@ export interface Parser<G extends ParserGenerics> {
 }
 
 export interface Lexer {
-  match(
-    symbol: string | readonly string[] | RegExp
-  ): [string | undefined, Lexer];
-  position: number;
+  next(n: number): [string, Lexer];
+  prev(n: number): Lexer;
+  position: RopeIter;
 }
 
 export interface LexerInterface<ErrorMessage = string> extends Lexer {
@@ -92,29 +93,16 @@ export type Parselet<G extends ParserGenerics> = {
   ): [G["MyOutputType"] | G["Error"], Parser<G>];
 };
 
-export function lexerFromString(input: string, position?: number): Lexer {
-  const pos = position ?? 0;
-
-  const getReturnValue = (str: string | undefined) =>
-    [str, lexerFromString(input, pos + (str?.length ?? 0))] satisfies [
-      string | undefined,
-      Lexer
-    ];
-
+export function lexerFromString(iter: RopeIter): Lexer {
   return {
-    position: pos,
-    match(symbol) {
-      if (symbol instanceof RegExp) {
-        const match = input.slice(pos).match(symbol);
-        if (match && match.index === 0) return getReturnValue(match[0]);
-      } else if (Array.isArray(symbol)) {
-        for (const item of symbol) {
-          if (input.slice(pos).startsWith(item)) return getReturnValue(item);
-        }
-      } else if (typeof symbol === "string") {
-        if (input.slice(pos).startsWith(symbol)) return getReturnValue(symbol);
-      }
-      return getReturnValue(undefined);
+    position: iter,
+    next(n) {
+      const [tokenString, nextRopeIter] = iter.read(n);
+      return [tokenString, lexerFromString(nextRopeIter)];
+    },
+    prev(n) {
+      const nextIter = iter.prev(n);
+      return lexerFromString(nextIter);
     },
   };
 }
@@ -171,7 +159,8 @@ export function parserFromLexer<G extends ParserGenerics>(
 
       try {
         const [data, newLexer] = symbol.lex({
-          match: lexer.match,
+          next: lexer.next,
+          prev: lexer.prev,
           err: (msg: G["ErrorMessage"]) => {
             hasThrownExpectedError = true;
             throw options.makeErrorMessage(msg);
