@@ -3,6 +3,7 @@ export type Rope = RopeBranch | RopeLeaf;
 export class RopeLeaf {
   data: string;
   parent?: RopeBranch;
+  iters: Map<number, WeakRef<RopeIter>>;
 
   get countToLeft() {
     return this.data.length;
@@ -10,6 +11,15 @@ export class RopeLeaf {
 
   constructor(data: string) {
     this.data = data;
+    this.iters = new Map();
+  }
+
+  purgeDeadIterators() {
+    for (const [k, v] of this.iters.entries()) {
+      if (v.deref() === undefined) {
+        this.iters.delete(k);
+      }
+    }
   }
 
   concat(r: Rope) {
@@ -22,18 +32,43 @@ export class RopeLeaf {
   }
 
   iter(idx: number): RopeIter {
-    return new RopeIter(this, idx);
+    const iter = new RopeIter(this, idx);
+    this.iters.set(iter.id, new WeakRef(iter));
+    return iter;
   }
 
-  startIndex() {
-    return this.parent?.startIndex() ?? 0;
+  startIndex(): number {
+    const parent = this.parent;
+
+    if (!parent) return 0;
+
+    const parentStartIndex = parent.startIndex();
+    // this is a left child
+    if (parent.left === this) {
+      return parentStartIndex;
+      // this is a right child
+    } else {
+      return parentStartIndex + parent.countToLeft;
+    }
   }
 
   split(idx: number): [RopeLeaf, RopeLeaf] {
-    return [
-      new RopeLeaf(this.data.slice(0, idx)),
-      new RopeLeaf(this.data.slice(idx)),
-    ];
+    const left = new RopeLeaf(this.data.slice(0, idx));
+    const right = new RopeLeaf(this.data.slice(idx));
+
+    this.purgeDeadIterators();
+
+    for (const iterRef of this.iters.values()) {
+      const iter = iterRef.deref() as RopeIter;
+      if (iter.pos >= idx) {
+        iter.moveRef(right);
+        iter.pos -= idx;
+      } else {
+        iter.moveRef(left);
+      }
+    }
+
+    return [left, right];
   }
 
   shallowCopy() {
@@ -186,12 +221,26 @@ export function replace(
 }
 
 export class RopeIter {
+  static id = 0;
+
   rope: RopeLeaf;
   pos: number;
+  id: number;
 
   constructor(rope: RopeLeaf, pos: number) {
     this.rope = rope;
     this.pos = pos;
+    this.id = RopeIter.id++;
+  }
+
+  index() {
+    return this.pos + this.rope.startIndex();
+  }
+
+  moveRef(newRope: RopeLeaf) {
+    this.rope.iters.delete(this.id);
+    newRope.iters.set(this.id, new WeakRef(this));
+    this.rope = newRope;
   }
 
   read(n: number): [string, RopeIter] {
@@ -215,7 +264,7 @@ export class RopeIter {
           nextIter.pos = nextIter.rope.str().length;
           break;
         }
-        nextIter.rope = nextLeaf;
+        nextIter.moveRef(nextLeaf);
       }
     }
 
@@ -237,7 +286,7 @@ export class RopeIter {
           prevIter.pos = 0;
           break;
         }
-        prevIter.rope = prevLeaf;
+        prevIter.moveRef(prevLeaf);
         prevIter.pos = prevIter.rope.str().length - 1;
       }
     }

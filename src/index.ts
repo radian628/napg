@@ -22,7 +22,14 @@ export {
   skipTokens,
 } from "./immutable-api.js";
 
-export { Rope, RopeBranch, RopeLeaf, RopeIter, RopeIterMut } from "./rope.js";
+export {
+  replace,
+  Rope,
+  RopeBranch,
+  RopeLeaf,
+  RopeIter,
+  RopeIterMut,
+} from "./rope.js";
 
 export function pos<T extends Positioned<never>>(t: T) {
   return t[position];

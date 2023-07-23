@@ -1,14 +1,15 @@
 {
   "compilerOptions": {
     "strict": true,
-    "lib": ["es2015"],
+    "lib": ["es2015", "ESNext.WeakRef"],
     "declaration": true,
     "sourceMap": true,
     "outDir": "dist",
     "emitDeclarationOnly": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "moduleResolution": "nodenext"
+    "moduleResolution": "nodenext",
+    "target": "ES2015"
   },
   "include": ["src/*"]
 }

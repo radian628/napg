@@ -1,4 +1,4 @@
-import { Rope, RopeIterMut, RopeLeaf } from "../dist";
+import { Rope, RopeBranch, RopeIterMut, RopeLeaf, replace } from "../dist";
 import { test, expect } from "@jest/globals";
 
 test("Rope iterator", () => {
@@ -80,4 +80,35 @@ test("Traverse a split-up rope", () => {
     if (substr.length != 3) break;
   }
   expect(iterStr2).toEqual(str);
+});
+
+test("Retain iter position after split", () => {
+  const originalRope = rl("012345");
+
+  const iterLeft = originalRope.iter(1);
+  const iterRight = originalRope.iter(4);
+
+  new RopeBranch(...originalRope.split(3));
+
+  expect(iterLeft.index()).toEqual(1);
+  expect(iterRight.index()).toEqual(4);
+});
+
+test("Retain iterator position after replacing range", () => {
+  const originalRope = rl("foo123bar");
+
+  // create an iterator to the 7th char of the rope
+  const iter = originalRope.iter(7);
+  const iterIndex = iter.index();
+
+  // replace '123' with ' ', effectively removing two characters
+  const replacedRopes = replace(originalRope, 3, 6, rl(" "));
+
+  expect(replacedRopes.replacedRope.str()).toEqual("foo bar");
+
+  expect(replacedRopes.removedSection.str()).toEqual("123");
+
+  // index should now be two less vs before since the rope is shorter
+  const newIterIndex = iter.index();
+  expect(newIterIndex).toEqual(iterIndex - 2);
 });
