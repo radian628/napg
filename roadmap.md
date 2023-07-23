@@ -22,3 +22,7 @@ When something changes, I need to do the following:
 3. When parsing a node, if it fits the following criteria, it can be memoized:
    - Its range must be entirely before or after the range that was edited
    - Its state and its position must match a known state and position. Positions are shifted to take into account the fact that there might be more or less chars in the replacement.
+
+Problem with incremental parse: I somehow have to avoid invalidating the rope indices.
+
+The solution: Mutably update the rope. Rope nodes can seamlessly transition between leaves and branches. So if an iterator points to a leaf node, it can later turn into a branch node. Then, when updated, the iterator will change to point to a leaf node. I can infer what child node it'll point to pretty easily.
