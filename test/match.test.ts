@@ -18,13 +18,17 @@ const testPatternWith = (
   successes: string[],
   failures: string[]
 ) => {
-  describe(`testing pattern '${patname}'`, () => {
-    for (const str of successes) {
-      testPattern(patname, pat, str, true);
-    }
-    for (const str of failures) {
-      testPattern(patname, pat, str, false);
-    }
+  describe(`testing pattern '${patname}':`, () => {
+    describe("should match ", () => {
+      for (const str of successes) {
+        testPattern(patname, pat, str, true);
+      }
+    });
+    describe("should not match ", () => {
+      for (const str of failures) {
+        testPattern(patname, pat, str, false);
+      }
+    });
   });
 };
 
