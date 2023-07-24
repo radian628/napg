@@ -54,12 +54,6 @@ export type ParserTypes = {
   SkipToken: { type: "Success"; match: string };
 };
 
-// const num = simpleToken(/[0-9]+/, "number");
-// const op = simpleToken(["+", "-", "*", "/"] as const, "op");
-// const openParen = simpleToken("(", "'('");
-// const closeParen = simpleToken(")", "')'");
-// const whitespace = simpleToken(/\s+/, "whitespace");
-
 function charToken<T extends string>(alts: readonly T[]) {
   return token<TokenSuccess<T>, ParserTypes>((lexer) => {
     const tkn = lexer.next(1);
@@ -109,8 +103,9 @@ const bindingPowers = {
   "/": 2,
 };
 
-const hashIPS = (state: InitParseState, pos: RopeIter) => {
-  return 1000000 * pos.hash() + state.bindingPower * 100000 + pos.id;
+const hashIPS = (state: InitParseState) => {
+  const hash = state.bindingPower;
+  return hash;
 };
 
 const eqIPS = (a: InitParseState, b: InitParseState) => {
@@ -143,12 +138,8 @@ export function ffcParser(src: RopeIter) {
         }),
       };
     },
-    (state, pos) => {
-      return (
-        state.bindingPower * 100000000 +
-        state.left[position].id * 100000 +
-        pos.id
-      );
+    (state) => {
+      return state.bindingPower * 100000000 + state.left[position].id * 100000;
     },
     (a, b) => {
       return a.bindingPower === b.bindingPower && a.left === b.left;

@@ -33,6 +33,8 @@ export {
   RopeIterMut,
 } from "./rope.js";
 
+export { matchStr, str, kleene, union, between, atleast } from "./match.js";
+
 export function pos<T extends Positioned<never>>(t: T) {
   return t[position];
 }
@@ -102,24 +104,27 @@ export function makeParseletBuilder<
 
 export function parselet<G extends ParserGenerics>(
   fn: (parser: MutableParserInterface<G>) => G["MyOutputType"] | G["Error"],
-  hash: (state: G["State"], position: RopeIter) => number,
+  hash: (state: G["State"]) => number,
   eq: (a: G["State"], b: G["State"]) => boolean
 ): Parselet<G> {
   const cache = new HashTable<
-    [G["State"], RopeIter],
-    [G["MyOutputType"], Parser<G>]
-  >(
-    (key) => hash(...key),
-    ([state1, pos1], [state2, pos2]) => eq(state1, state2) && pos1.equals(pos2)
-  );
+    G["State"],
+    Map<RopeIter, [G["MyOutputType"], Parser<G>]>
+  >((key) => hash(key), eq);
 
   return {
     parse(parser, skipTokens, isInRange) {
-      const entry = cache.get([parser.state, parser.position]);
+      const posmap = cache.get(parser.state);
+      const entry = posmap?.get(parser.position);
 
-      if (entry && !isInRange(parser.position, entry[1].position)) {
-        console.log("Actually used the cache: ", entry[0]);
-        return entry;
+      if (entry) {
+        if (isInRange(parser.position, entry[1].position)) {
+          nestedMapDelete(cache, parser.state, (m) =>
+            m.delete(parser.position)
+          );
+        } else {
+          return entry;
+        }
       }
 
       let ret: [G["MyOutputType"], Parser<G>];
@@ -188,31 +193,49 @@ export function parselet<G extends ParserGenerics>(
         }
       }
 
-      cache.set([parser.state, parser.position], ret);
+      multiMapSet(cache, parser.state, new Map(), (m) =>
+        m.set(parser.position, ret)
+      );
 
       return ret;
     },
   };
 }
 
-// export const simpleTokenSpecBuilder =
-//   <
-//     TokenStringKey extends string | symbol | number,
-//     TokenSuccess,
-//     G extends ParserGenerics
-//   >(
-//     generateErrorMessage: (name: string) => G["ErrorMessage"],
-//     generateSuccess: <T extends string>(
-//       match: T
-//     ) => TokenSuccess & { [K in TokenStringKey]: T }
-//   ) =>
-//   <T extends string>(
-//     symbol: T | readonly T[] | RegExp,
-//     name: string
-//   ): Token<TokenSuccess & { [K in TokenStringKey]: T }, G> => {
-//     return token((lexer) => {
-//       const match = lexer.match(symbol);
-//       if (match === undefined) lexer.err(generateErrorMessage(name));
-//       return generateSuccess(match as T);
-//     });
-//   };
+function multiMapSet<
+  K,
+  V,
+  M extends {
+    get: (k: K) => V | undefined;
+    set: (k: K, v: V) => void;
+  }
+>(map: M, key: K, fallback: V, callback: (v: V) => void) {
+  let v = map.get(key);
+  if (v === undefined) {
+    v = fallback;
+    map.set(key, v);
+  }
+
+  callback(v);
+}
+
+function nestedMapDelete<
+  K,
+  V extends Map<unknown, unknown>,
+  M extends {
+    get: (k: K) => V | undefined;
+    delete: (k: K) => boolean;
+  }
+>(map: M, key: K, callback: (v: V) => boolean) {
+  const innerMap = map.get(key);
+
+  if (innerMap) {
+    callback(innerMap);
+  }
+
+  if (innerMap && innerMap?.size === 0) {
+    return map.delete(key);
+  } else {
+    return false;
+  }
+}

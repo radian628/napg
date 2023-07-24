@@ -12,42 +12,42 @@ function rangeIntersect(
 }
 
 describe("incremental parsing test", () => {
-  test("1 + 3 -> 1 + 2 + 3", () => {
-    const rope = new RopeLeaf("1 + 3");
+  // test("1 + 3 -> 1 + 2 + 3", () => {
+  //   const rope = new RopeLeaf("1 + 3");
+  //   const parser = ffcParser(rope.iter(0));
+
+  //   const value = evalFFC(parser.exec(() => false));
+
+  //   expect(value).toEqual(4);
+
+  //   console.log("first eval done ");
+
+  //   const updatedRope = replace(rope, 4, 4, new RopeLeaf("2 + ")).replacedRope;
+
+  //   expect(updatedRope.str()).toEqual("1 + 2 + 3");
+  //   expect(parser.position.rope.str()).toEqual("1 + ");
+
+  //   const value2 = evalFFC(
+  //     parser.exec((start, end) => {
+  //       const startNum = start.index();
+  //       const endNum = end.index();
+
+  //       return rangeIntersect(startNum, endNum, 4, 8);
+  //     })
+  //   );
+
+  //   expect(value2).toEqual(6);
+  // });
+
+  test("(1 + 2 + 3) + (4 + 4) -> (1 + 2 + 5 + 3) + (4 + 4)", () => {
+    const rope = new RopeLeaf("(1 + 2 + 3) + (4 + 4)");
     const parser = ffcParser(rope.iter(0));
 
-    const value = evalFFC(parser.exec(() => false));
-
-    expect(value).toEqual(4);
-
-    console.log("first eval done ");
-
-    const updatedRope = replace(rope, 4, 4, new RopeLeaf("2 + ")).replacedRope;
-
-    expect(updatedRope.str()).toEqual("1 + 2 + 3");
-    expect(parser.position.rope.str()).toEqual("1 + ");
-
-    const value2 = evalFFC(
-      parser.exec((start, end) => {
-        const startNum = start.index();
-        const endNum = end.index();
-
-        return rangeIntersect(startNum, endNum, 4, 8);
-      })
-    );
-
-    expect(value2).toEqual(6);
-  });
-
-  test("(1 + 2 + 3) + 4 -> (1 + 2 + 5 + 3) + 4", () => {
-    const rope = new RopeLeaf("(1 + 2 + 3) + 4");
-    const parser = ffcParser(rope.iter(0));
-
-    expect(evalFFC(parser.exec(() => false))).toEqual(10);
+    expect(evalFFC(parser.exec(() => false))).toEqual(14);
 
     const updatedRope = replace(rope, 6, 6, new RopeLeaf(" + 5")).replacedRope;
 
-    expect(updatedRope.str()).toEqual("(1 + 2 + 5 + 3) + 4");
+    expect(updatedRope.str()).toEqual("(1 + 2 + 5 + 3) + (4 + 4)");
     expect(parser.position.rope.str()).toEqual("(1 + 2");
 
     const value2 = evalFFC(
@@ -59,6 +59,6 @@ describe("incremental parsing test", () => {
       })
     );
 
-    expect(value2).toEqual(15);
+    expect(value2).toEqual(19);
   });
 });

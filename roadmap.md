@@ -6,26 +6,13 @@ Progress on the design goals from the README:
 2. I've got essentially everything aside from some minor (but acceptable) ordering issues with skip tokens.
 3. Essentially complete aside from the problem of attaching position and skipToken info. This is not a big deal though.
 4. Essentially complete with the error node system.
-5. Not implemented yet. However, parselet memoization should be fairly simple, perhaps with a trie for each state object.
-   - Each parselet's cache depends on state and next chars
-   - Each state is cached with a `hash` function and an `eq` function. Both have defaults that should work for typical use cases (npm `object-hash` and a simple nested object and array-based deep equality algorithm)
-6. Not implemented yet.
+5. Done.
+6. Done.
 
-## Incremental
+Future challenges:
 
-Idea: Along with every node, store a parser snapshot dated immediately prior to parsing that node. Then when the source string changes, some swapping might be necessary.
-
-When something changes, I need to do the following:
-
-1. Perform a replace operation on the rope.
-2. Parse the root node as normal.
-3. When parsing a node, if it fits the following criteria, it can be memoized:
-   - Its range must be entirely before or after the range that was edited
-   - Its state and its position must match a known state and position. Positions are shifted to take into account the fact that there might be more or less chars in the replacement.
-
-Problem with incremental parse: I somehow have to avoid invalidating the rope indices.
-
-The solution: Mutably update the rope. Rope nodes can seamlessly transition between leaves and branches. So if an iterator points to a leaf node, it can later turn into a branch node. Then, when updated, the iterator will change to point to a leaf node. I can infer what child node it'll point to pretty easily.
-
-KEY ROPE ITERATORS BASED ON THEIR INDEX IN THE SUBSTRING (no need for custom id value)
-EQ BASED ON INDEX IS FINE
+- Implement proper range invalidation so the incremental parser doesn't blindly skip over sections that need to be reparsed.
+- Make the rope rebalance itself from time to time.
+- Make some kind of a declarative language sorta thing that runs on top of the lexer so that patterns are easy to make.
+- Add sensible default hash and eq functions. Add a parsenode prototype and stuff and add hash and eq handlers to that.
+- Add another abstraction layer because right now the interface is crawling with annoying implementation details (e.g. range invalidation handler). Either way, make it possible to "peel back the layers" if needed.

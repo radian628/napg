@@ -35,6 +35,8 @@ export class RopeLeaf {
   }
 
   iter(idx: number): RopeIter {
+    const existingIter = this.iters.get(idx)?.deref();
+    if (existingIter) return existingIter;
     const iter = new RopeIter(this, idx);
     return iter;
   }
@@ -65,10 +67,9 @@ export class RopeLeaf {
     for (const iterRef of this.iters.values()) {
       const iter = iterRef.deref() as RopeIter;
       if (iter.pos >= idx) {
-        iter.moveRef(right);
-        iter.pos -= idx;
+        iter.moveRef(right, iter.pos - idx);
       } else {
-        iter.moveRef(left);
+        iter.moveRef(left, iter.pos);
       }
     }
 
@@ -235,7 +236,7 @@ export class RopeIter {
     this.rope = rope;
     this.pos = pos;
     this.id = RopeIter.id++;
-    this.rope.iters.set(this.id, new WeakRef(this));
+    this.rope.iters.set(this.pos, new WeakRef(this));
   }
 
   index() {
@@ -247,64 +248,67 @@ export class RopeIter {
   }
 
   hash() {
-    return this.rope.hashid * 10000 + this.pos;
+    return this.id;
   }
 
-  moveRef(newRope: RopeLeaf) {
-    this.rope.iters.delete(this.id);
-    newRope.iters.set(this.id, new WeakRef(this));
+  moveRef(newRope: RopeLeaf, idx: number) {
+    this.rope.iters.delete(this.pos);
+    newRope.iters.set(idx, new WeakRef(this));
     this.rope = newRope;
+    this.pos = idx;
   }
 
   read(n: number): [string, RopeIter] {
-    const nextIter = new RopeIter(this.rope, this.pos);
+    let nextIterRope = this.rope;
+    let nextIterPos = this.pos;
 
     let readString = "";
     while (n > 0) {
       const unrestrictedRemainingCount =
-        nextIter.rope.str().length - nextIter.pos;
+        nextIterRope.str().length - nextIterPos;
       const remainingCount = Math.min(n, unrestrictedRemainingCount);
-      readString += nextIter.rope
+      readString += nextIterRope
         .str()
-        .slice(nextIter.pos, remainingCount + nextIter.pos);
-      nextIter.pos = remainingCount + nextIter.pos;
+        .slice(nextIterPos, remainingCount + nextIterPos);
+      nextIterPos = remainingCount + nextIterPos;
       n -= remainingCount;
 
       if (n > 0) {
-        nextIter.pos = 0;
-        const nextLeaf = nextIter.rope.nextLeaf();
+        nextIterPos = 0;
+        const nextLeaf = nextIterRope.nextLeaf();
         if (!nextLeaf) {
-          nextIter.pos = nextIter.rope.str().length;
+          nextIterPos = nextIterRope.str().length;
           break;
         }
-        nextIter.moveRef(nextLeaf);
+        nextIterRope = nextLeaf;
       }
     }
 
-    return [readString, nextIter];
+    return [readString, nextIterRope.iter(nextIterPos)];
   }
 
   prev(n: number): RopeIter {
-    const prevIter = new RopeIter(this.rope, this.pos);
+    let prevIterRope = this.rope;
+    let prevIterPos = this.pos;
 
     while (n > 0) {
-      const remaining = prevIter.pos;
+      const remaining = prevIterPos;
       if (remaining >= n) {
-        prevIter.pos -= n;
+        prevIterPos -= n;
         n = 0;
       } else {
-        n -= prevIter.pos;
-        const prevLeaf = prevIter.rope.prevLeaf();
+        n -= prevIterPos;
+        const prevLeaf = prevIterRope.prevLeaf();
         if (!prevLeaf) {
-          prevIter.pos = 0;
+          prevIterPos = 0;
           break;
         }
-        prevIter.moveRef(prevLeaf);
-        prevIter.pos = prevIter.rope.str().length - 1;
+        prevIterRope = prevLeaf;
+        prevIterPos = prevIterRope.str().length - 1;
       }
     }
 
-    return prevIter;
+    return prevIterRope.iter(prevIterPos);
   }
 }
 
