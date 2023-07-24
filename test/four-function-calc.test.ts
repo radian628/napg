@@ -1,44 +1,5 @@
 import { test, expect, describe } from "@jest/globals";
-import {
-  PositionedNode,
-  expressionParselet,
-  ffcParser,
-} from "./four-function-calc";
-
-function parseFFC(src: string) {
-  const parser = ffcParser(src);
-
-  const parserOutput = parser.parse(expressionParselet, {
-    bindingPower: 0,
-  });
-
-  return parserOutput[0];
-}
-
-function evalFFC(tree: PositionedNode): number {
-  switch (tree.type) {
-    case "Number":
-      return tree.number;
-    case "BinaryOp":
-      {
-        const l = evalFFC(tree.left);
-        const r = evalFFC(tree.right);
-        switch (tree.op) {
-          case "+":
-            return l + r;
-          case "-":
-            return l - r;
-          case "*":
-            return l * r;
-          case "/":
-            return l / r;
-        }
-      }
-      break;
-    case "Error":
-      return NaN;
-  }
-}
+import { evalFFC, parseFFC } from "./four-function-calc";
 
 function ffcTest(code: string) {
   test(code, () => {

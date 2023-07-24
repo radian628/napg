@@ -1,3 +1,4 @@
+import { HashTable } from "./hash-table.js";
 import {
   Lexer,
   Parselet,
@@ -8,6 +9,7 @@ import {
   eliminateSkipTokens,
   position,
 } from "./immutable-api.js";
+import { RopeIter } from "./rope.js";
 
 export {
   Token,
@@ -72,7 +74,9 @@ export interface MutableParserInterface<G extends ParserGenerics> {
   parse<G2 extends ParserGenerics>(
     symbol: Parselet<G2>,
     state: G2["State"]
-  ): (G2["MyOutputType"] & Positioned<G>) | (G["Error"] & Positioned<G>);
+  ):
+    | (G2["MyOutputType"] & Positioned<G2["SkipToken"]>)
+    | (G["Error"] & Positioned<G2["SkipToken"]>);
   lex<OutputType>(symbol: Token<OutputType, G>): OutputType;
   lexFirstMatch<OutputType>(
     tokens: Token<OutputType, G>[],
@@ -90,25 +94,46 @@ export function makeParseletBuilder<
   G extends Exclude<ParserGenerics, "MyOutputType" | "State">
 >() {
   return <State, NodeType extends object>(
-    fn: (
-      parser: MutableParserInterface<
-        G & { MyOutputType: NodeType; State: State }
-      >
-    ) => NodeType | G["Error"]
-  ) => parselet(fn);
+    ...args: Parameters<
+      typeof parselet<G & { State: State; MyOutputType: NodeType }>
+    >
+  ) => parselet(...args);
 }
 
 export function parselet<G extends ParserGenerics>(
-  fn: (parser: MutableParserInterface<G>) => G["MyOutputType"] | G["Error"]
+  fn: (parser: MutableParserInterface<G>) => G["MyOutputType"] | G["Error"],
+  hash: (state: G["State"], position: RopeIter) => number,
+  eq: (a: G["State"], b: G["State"]) => boolean
 ): Parselet<G> {
+  const cache = new HashTable<
+    [G["State"], RopeIter],
+    [G["MyOutputType"], Parser<G>]
+  >(
+    (key) => hash(...key),
+    ([state1, pos1], [state2, pos2]) => eq(state1, state2) && pos1.equals(pos2)
+  );
+
   return {
-    parse(parser, skipTokens) {
+    parse(parser, skipTokens, isInRange) {
+      const entry = cache.get([parser.state, parser.position]);
+
+      if (entry && !isInRange(parser.position, entry[1].position)) {
+        console.log("Actually used the cache: ", entry[0]);
+        return entry;
+      }
+
+      let ret: [G["MyOutputType"], Parser<G>];
+
       let newParser = parser as Parser<G>;
       let encounteredErrNormally = false;
       try {
         const output = fn({
           parse(symbol, newState) {
-            const [output, parser2] = newParser.parse(symbol, newState);
+            const [output, parser2] = newParser.parse(
+              symbol,
+              newState,
+              isInRange
+            );
             newParser = parser2;
             return output;
           },
@@ -152,16 +177,20 @@ export function parselet<G extends ParserGenerics>(
             throw newParser.options.makeErrorMessage(fallbackErrorMessage);
           },
         });
-        return [output, newParser];
+        ret = [output, newParser];
       } catch (err) {
         if (encounteredErrNormally) {
           const errAsNode = err as G["Error"];
-          return [errAsNode, newParser];
+          ret = [errAsNode, newParser];
         } else {
           const errAsNode = newParser.options.makeUnhandledError(err);
-          return [errAsNode, newParser];
+          ret = [errAsNode, newParser];
         }
       }
+
+      cache.set([parser.state, parser.position], ret);
+
+      return ret;
     },
   };
 }

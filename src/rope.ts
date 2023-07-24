@@ -1,9 +1,12 @@
 export type Rope = RopeBranch | RopeLeaf;
 
 export class RopeLeaf {
+  static id = 0;
+
   data: string;
   parent?: RopeBranch;
   iters: Map<number, WeakRef<RopeIter>>;
+  hashid = RopeLeaf.id++;
 
   get countToLeft() {
     return this.data.length;
@@ -33,7 +36,6 @@ export class RopeLeaf {
 
   iter(idx: number): RopeIter {
     const iter = new RopeIter(this, idx);
-    this.iters.set(iter.id, new WeakRef(iter));
     return iter;
   }
 
@@ -54,7 +56,9 @@ export class RopeLeaf {
 
   split(idx: number): [RopeLeaf, RopeLeaf] {
     const left = new RopeLeaf(this.data.slice(0, idx));
+    left.hashid = this.hashid;
     const right = new RopeLeaf(this.data.slice(idx));
+    right.hashid = this.hashid;
 
     this.purgeDeadIterators();
 
@@ -231,10 +235,19 @@ export class RopeIter {
     this.rope = rope;
     this.pos = pos;
     this.id = RopeIter.id++;
+    this.rope.iters.set(this.id, new WeakRef(this));
   }
 
   index() {
     return this.pos + this.rope.startIndex();
+  }
+
+  equals(iter: RopeIter) {
+    return this.rope === iter.rope && this.pos === iter.pos;
+  }
+
+  hash() {
+    return this.rope.hashid * 10000 + this.pos;
   }
 
   moveRef(newRope: RopeLeaf) {

@@ -26,3 +26,6 @@ When something changes, I need to do the following:
 Problem with incremental parse: I somehow have to avoid invalidating the rope indices.
 
 The solution: Mutably update the rope. Rope nodes can seamlessly transition between leaves and branches. So if an iterator points to a leaf node, it can later turn into a branch node. Then, when updated, the iterator will change to point to a leaf node. I can infer what child node it'll point to pretty easily.
+
+KEY ROPE ITERATORS BASED ON THEIR INDEX IN THE SUBSTRING (no need for custom id value)
+EQ BASED ON INDEX IS FINE

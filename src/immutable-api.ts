@@ -4,14 +4,15 @@ export const position = Symbol("position");
 
 export const skipTokens = Symbol("skipTokens");
 
-export type Positioned<G extends ParserGenerics> = {
+export type Positioned<SkipToken> = {
   [position]: {
     start: RopeIter;
-    end: RopeIter;
+    length: number;
+    id: number;
   };
   [skipTokens]: {
-    before: G["SkipToken"][];
-    after: G["SkipToken"][];
+    before: SkipToken[];
+    after: SkipToken[];
   };
 };
 
@@ -49,9 +50,13 @@ export type SkipTokensOf<G extends ParserGenerics> = Token<G["SkipToken"], G>[];
 export interface Parser<G extends ParserGenerics> {
   parse<G2 extends ParserGenerics>(
     symbol: Parselet<G2>,
-    state: G2["State"]
+    state: G2["State"],
+    isInRange: (start: RopeIter, end: RopeIter) => boolean
   ): [
-    (G2["MyOutputType"] & Positioned<G2>) | (G2["Error"] & Positioned<G2>),
+    (
+      | (G2["MyOutputType"] & Positioned<G2["SkipToken"]>)
+      | (G2["Error"] & Positioned<G2["SkipToken"]>)
+    ),
     Parser<G>
   ];
   lex<TokenType>(
@@ -68,6 +73,9 @@ export interface Parser<G extends ParserGenerics> {
   err(msg: G["ErrorMessage"]): never;
   isErr<OutputType>(node: OutputType | G["Error"]): node is G["Error"];
   skipTokens: SkipTokensOf<G>;
+  exec: (
+    isInRange: (start: RopeIter, end: RopeIter) => boolean
+  ) => G["MyOutputType"] & Positioned<G["SkipToken"]>;
 }
 
 export interface Lexer {
@@ -89,7 +97,8 @@ export type Token<TokenType, G extends ParserGenerics> = {
 export type Parselet<G extends ParserGenerics> = {
   parse(
     parser: Parser<G>,
-    skipTokens: G["SkipToken"][]
+    skipTokens: G["SkipToken"][],
+    isInRange: (start: RopeIter, end: RopeIter) => boolean
   ): [G["MyOutputType"] | G["Error"], Parser<G>];
 };
 
@@ -145,6 +154,9 @@ export function parserFromLexer<G extends ParserGenerics>(
   }>
 ): Parser<G> {
   return {
+    exec(isInRange: (start: RopeIter, end: RopeIter) => boolean) {
+      return this.parse(this.parselet, this.state, isInRange)[0];
+    },
     skipTokens: skipTokensList,
     err(msg: G["ErrorMessage"]) {
       throw options.makeErrorMessage(msg);
@@ -191,7 +203,11 @@ export function parserFromLexer<G extends ParserGenerics>(
       Node,
       State,
       P extends Parselet<ChangeParserGenerics<G, Node, State>>
-    >(symbol: P, state: State) {
+    >(
+      symbol: P,
+      state: State,
+      isInRange: (start: RopeIter, end: RopeIter) => boolean
+    ) {
       // eslint-disable-next-line @typescript-eslint/no-this-alias
       let parserToReturn: Parser<G> = this;
 
@@ -205,7 +221,8 @@ export function parserFromLexer<G extends ParserGenerics>(
 
       const parsedOutput = symbol.parse(
         parserToReturn.clone(symbol, state),
-        skipTokensAfter
+        skipTokensAfter,
+        isInRange
       );
 
       parserToReturn = parsedOutput[1];
@@ -231,8 +248,9 @@ export function parserFromLexer<G extends ParserGenerics>(
         {
           ...outputToReturn,
           [position]: {
-            start: startPosition,
-            end: endPosition,
+            start: this.position,
+            length: endPosition.index() - startPosition.index(),
+            id: globalid++,
           },
           [skipTokens]: {
             before: beforeSkipTokens,
@@ -244,3 +262,5 @@ export function parserFromLexer<G extends ParserGenerics>(
     },
   };
 }
+
+let globalid = 0;

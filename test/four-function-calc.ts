@@ -1,9 +1,11 @@
 import {
   Positioned,
+  RopeIter,
   RopeLeaf,
   lexerFromString,
   makeParseletBuilder,
   parserFromLexer,
+  position,
   token,
 } from "../dist";
 
@@ -41,7 +43,8 @@ type ConsequentParseState = InitParseState & {
 
 type Node = ExpressionNode | ErrorNode;
 
-export type PositionedNode = Node & Positioned<ParserTypes>;
+export type PositionedNode = Node &
+  Positioned<{ type: "Success"; match: string }>;
 
 export type ParserTypes = {
   MyOutputType: ExpressionNode;
@@ -106,76 +109,106 @@ const bindingPowers = {
   "/": 2,
 };
 
-const parselet = makeParseletBuilder<ParserTypes>();
+const hashIPS = (state: InitParseState, pos: RopeIter) => {
+  return 1000000 * pos.hash() + state.bindingPower * 100000 + pos.id;
+};
 
-const consequentExpressionParselet = parselet<
-  ConsequentParseState,
-  BinaryOpNode
->((p) => {
-  const first = p.lex(op);
-  const nextBindingPower = bindingPowers[first.match];
+const eqIPS = (a: InitParseState, b: InitParseState) => {
+  return a.bindingPower === b.bindingPower;
+};
 
-  // operator precedence of next binary op is too low,
-  // so exit early
-  if (nextBindingPower <= p.state.bindingPower) p.err("");
+export function ffcParser(src: RopeIter) {
+  const lexer = lexerFromString(src);
 
-  return {
-    type: "BinaryOp",
-    op: first.match,
-    left: p.state.left,
-    right: p.parse(expressionParselet, {
-      bindingPower: nextBindingPower,
-    }),
-  };
-});
+  const parselet = makeParseletBuilder<ParserTypes>();
 
-const initExpressionParselet = parselet<InitParseState, ExpressionNode>((p) => {
-  const first = p.lexFirstMatch([openParen, num], "Expected '(' or a number.");
+  const consequentExpressionParselet = parselet<
+    ConsequentParseState,
+    BinaryOpNode
+  >(
+    (p) => {
+      const first = p.lex(op);
+      const nextBindingPower = bindingPowers[first.match];
 
-  // parenthesized
-  if (first.match === "(") {
-    const result = p.parse(expressionParselet, {
-      bindingPower: 0,
-    }) as ExpressionNode | ErrorNode;
-    p.lex(closeParen);
-    return result;
+      // operator precedence of next binary op is too low,
+      // so exit early
+      if (nextBindingPower <= p.state.bindingPower) p.err("");
 
-    // non-parenthesized
-  } else {
-    return {
-      type: "Number",
-      number: Number(first.match),
-    };
-  }
-});
+      return {
+        type: "BinaryOp",
+        op: first.match,
+        left: p.state.left,
+        right: p.parse(expressionParselet, {
+          bindingPower: nextBindingPower,
+        }),
+      };
+    },
+    (state, pos) => {
+      return (
+        state.bindingPower * 100000000 +
+        state.left[position].id * 100000 +
+        pos.id
+      );
+    },
+    (a, b) => {
+      return a.bindingPower === b.bindingPower && a.left === b.left;
+    }
+  );
 
-export const expressionParselet = parselet<InitParseState, ExpressionNode>(
-  (p) => {
-    let left = p.parse(initExpressionParselet, p.state);
+  const initExpressionParselet = parselet<InitParseState, ExpressionNode>(
+    (p) => {
+      const first = p.lexFirstMatch(
+        [openParen, num],
+        "Expected '(' or a number."
+      );
 
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const snapshot = p.getParserSnapshot();
+      // parenthesized
+      if (first.match === "(") {
+        const result = p.parse(expressionParselet, {
+          bindingPower: 0,
+        }) as ExpressionNode | ErrorNode;
+        p.lex(closeParen);
+        return result;
 
-      const nextParseNode = p.parse(consequentExpressionParselet, {
-        bindingPower: p.state.bindingPower,
-        left,
-      });
+        // non-parenthesized
+      } else {
+        return {
+          type: "Number",
+          number: Number(first.match),
+        };
+      }
+    },
+    hashIPS,
+    eqIPS
+  );
 
-      if (nextParseNode.type === "Error") {
-        p.setParserSnapshot(snapshot);
-        break;
+  const expressionParselet = parselet<InitParseState, ExpressionNode>(
+    (p) => {
+      let left = p.parse(initExpressionParselet, p.state);
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const snapshot = p.getParserSnapshot();
+
+        const nextParseNode = p.parse(consequentExpressionParselet, {
+          bindingPower: p.state.bindingPower,
+          left,
+        });
+
+        if (nextParseNode.type === "Error") {
+          p.setParserSnapshot(snapshot);
+          break;
+        }
+
+        left = nextParseNode;
       }
 
-      left = nextParseNode;
-    }
+      return left;
+    },
+    hashIPS,
+    eqIPS
+  );
 
-    return left;
-  }
-);
-
-export function ffcParser(src: string) {
-  const lexer = lexerFromString(new RopeLeaf(src).iter(0));
   return parserFromLexer<ParserTypes>(
     lexer,
     { bindingPower: 0 },
@@ -203,4 +236,37 @@ export function ffcParser(src: string) {
       },
     }
   );
+}
+
+export function parseFFC(src: string) {
+  const parser = ffcParser(new RopeLeaf(src).iter(0));
+
+  const parserOutput = parser.exec(() => true);
+
+  return parserOutput;
+}
+
+export function evalFFC(tree: PositionedNode): number {
+  switch (tree.type) {
+    case "Number":
+      return tree.number;
+    case "BinaryOp":
+      {
+        const l = evalFFC(tree.left);
+        const r = evalFFC(tree.right);
+        switch (tree.op) {
+          case "+":
+            return l + r;
+          case "-":
+            return l - r;
+          case "*":
+            return l * r;
+          case "/":
+            return l / r;
+        }
+      }
+      break;
+    case "Error":
+      return NaN;
+  }
 }
