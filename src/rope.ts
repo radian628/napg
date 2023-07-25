@@ -331,3 +331,10 @@ export class RopeIterMut {
     this.iter = prevIter;
   }
 }
+
+export function root(rope: Rope) {
+  while (rope.parent) {
+    rope = rope.parent;
+  }
+  return rope;
+}

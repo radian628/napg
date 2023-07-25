@@ -7,9 +7,11 @@ import {
   Positioned,
   Token,
   eliminateSkipTokens,
+  lexerFromString,
   position,
 } from "./immutable-api.js";
-import { RopeIter } from "./rope.js";
+import { match } from "./match.js";
+import { Rope, RopeIter, RopeLeaf, replace, root } from "./rope.js";
 
 export {
   Token,
@@ -35,6 +37,8 @@ export {
 
 export { matchStr, str, kleene, union, between, atleast } from "./match.js";
 
+export { compilePattern } from "./pattern.js";
+
 export function pos<T extends Positioned<never>>(t: T) {
   return t[position];
 }
@@ -42,6 +46,8 @@ export function pos<T extends Positioned<never>>(t: T) {
 export interface MutableLexerInterface<G extends ParserGenerics> {
   next(n: number): string;
   prev(n: number): void;
+  getpos(): number;
+  setpos(n: number): void;
   err(msg: G["ErrorMessage"]): never;
 }
 
@@ -61,6 +67,13 @@ export function token<TokenType, G extends ParserGenerics>(
         prev(n) {
           const l = nextLexer.prev(n);
           nextLexer = l;
+        },
+        getpos() {
+          return nextLexer.position.index();
+        },
+        setpos(pos: number) {
+          const lexer2 = root(nextLexer.position.rope).iter(pos);
+          nextLexer = lexerFromString(lexer2);
         },
         err(msg: G["ErrorMessage"]) {
           throw lexer.err(msg);
@@ -93,11 +106,16 @@ export interface MutableParserInterface<G extends ParserGenerics> {
 }
 
 export function makeParseletBuilder<
-  G extends Exclude<ParserGenerics, "MyOutputType" | "State">
+  G extends Omit<ParserGenerics, "MyOutputType" | "State">
 >() {
   return <State, NodeType extends object>(
     ...args: Parameters<
-      typeof parselet<G & { State: State; MyOutputType: NodeType }>
+      typeof parselet<
+        Omit<G, "MyOutputType" | "State"> & {
+          State: State;
+          MyOutputType: NodeType;
+        }
+      >
     >
   ) => parselet(...args);
 }
@@ -237,5 +255,80 @@ function nestedMapDelete<
     return map.delete(key);
   } else {
     return false;
+  }
+}
+
+export function matchToken<T, G extends ParserGenerics>(
+  pattern: number[],
+  onMatch: (str: string) => T,
+  err: G["ErrorMessage"]
+) {
+  return token<T, G>((iter) => {
+    const iterStart = iter.getpos();
+
+    const matches = match(
+      {
+        data: pattern,
+        index: 0,
+      },
+      {
+        next: () => {
+          const char = iter.next(1);
+          return char;
+        },
+        getpos: iter.getpos,
+        setpos: iter.setpos,
+      }
+    );
+
+    if (matches !== undefined) {
+      iter.setpos(iterStart);
+      return onMatch(iter.next(matches));
+    } else {
+      throw iter.err(err);
+    }
+  });
+}
+
+function rangeIntersect(
+  start1: number,
+  end1: number,
+  start2: number,
+  end2: number
+) {
+  return start1 <= end2 && end1 >= start2;
+}
+
+export class LivingDocument<G extends ParserGenerics> {
+  data: Rope;
+  getParser: (rope: RopeIter) => Parser<G>;
+  pendingChanges: { start: number; end: number }[];
+
+  constructor(data: string, getParser: (rope: RopeIter) => Parser<G>) {
+    this.data = new RopeLeaf(data);
+    this.getParser = getParser;
+    this.pendingChanges = [];
+  }
+
+  replace(start: number, end: number, str: string) {
+    this.pendingChanges.push({ start, end });
+    this.data = replace(this.data, start, end, new RopeLeaf(str)).replacedRope;
+  }
+
+  parse() {
+    const result = this.getParser(this.data.iter(0)).exec((start, end) => {
+      const iStart = start.index();
+      const iEnd = end.index();
+
+      for (const change of this.pendingChanges) {
+        if (rangeIntersect(iStart, iEnd, change.start - 1, change.end + 1)) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+    this.pendingChanges = [];
+    return result;
   }
 }

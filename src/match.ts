@@ -7,6 +7,7 @@
 // 3: union end
 // 4: concat start
 // 5: concat end
+// 6: range + start (next op is range end)
 
 const isConcatEnd = (opcode: number) => {
   return opcode >> 25 === 5;
@@ -27,13 +28,15 @@ export type StringIterator = {
 };
 
 export function match(pattern: PatternIter, str: StringIterator) {
-  function matchAny(pattern: PatternIter) {
+  function matchAny(pattern: PatternIter): number | undefined {
     const opcode = pattern.data[pattern.index] >> 25;
 
     switch (opcode) {
       case 0: {
         const nextchar = str.next();
-        return String.fromCharCode(pattern.data[pattern.index++]) === nextchar;
+        return String.fromCodePoint(pattern.data[pattern.index++]) === nextchar
+          ? 1
+          : undefined;
       }
       case 1:
         pattern.index++;
@@ -44,45 +47,66 @@ export function match(pattern: PatternIter, str: StringIterator) {
       case 4:
         pattern.index++;
         return matchConcat(pattern);
+      case 6: {
+        const start = pattern.data[pattern.index++] & ((2 << 25) - 1);
+        const end = pattern.data[pattern.index++];
+        const code = str.next().codePointAt(0) as number;
+        const result = code >= start && code <= end ? 1 : undefined;
+        return result;
+      }
     }
 
-    return false;
+    return undefined;
   }
 
   function matchConcat(pattern: PatternIter) {
+    let count = 0;
     while (!isConcatEnd(pattern.data[pattern.index])) {
-      if (!matchAny(pattern)) return false;
+      const m = matchAny(pattern);
+      if (m === undefined) return undefined;
+      count += m;
     }
 
     pattern.index++;
 
-    return true;
+    return count;
   }
 
   function matchKleeneStar(pattern: PatternIter) {
     const previndex = pattern.index;
+    let count = 0;
 
-    while (matchAny(pattern)) {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
       pattern.index = previndex;
+      const m = matchAny(pattern);
+      if (m === undefined) {
+        break;
+      } else {
+        count += m;
+      }
     }
 
-    return true;
+    return count;
   }
 
   function matchUnion(pattern: PatternIter) {
     while (!isUnionEnd(pattern.data[pattern.index])) {
       const pos = str.getpos();
-      if (matchAny(pattern)) {
+      const m = matchAny(pattern);
+      if (m !== undefined) {
         while (!isUnionEnd(pattern.data[pattern.index])) pattern.index++;
         pattern.index++;
-        return true;
+        return m;
       }
 
       str.setpos(pos);
     }
 
+    pattern.index++;
+
     // no variants matched
-    return false;
+    return undefined;
   }
 
   return matchAny(pattern);
@@ -97,7 +121,7 @@ export function matchStr(pattern: number[], str: string) {
     },
     {
       next: () => {
-        return str[strindex++];
+        return str[strindex++] ?? "";
       },
       getpos: () => strindex,
       setpos: (i: number) => (strindex = i),
@@ -132,6 +156,8 @@ export function concat(...args: (number[] | string)[]) {
 
 // a|b
 export function union(...args: (number[] | string)[]) {
+  if (args.length === 1)
+    return typeof args[0] === "string" ? str(args[0]) : args[0];
   return [
     (2 << 24) * 2,
     ...args
@@ -166,4 +192,8 @@ export function between(lo: number, hi: number, opcodes: number[]) {
     ...new Array(lo).fill(opcodes),
     ...new Array(hi - lo).fill(maybe(opcodes))
   );
+}
+
+export function range(startChar: number, endChar: number) {
+  return [(2 << 24) * 6 + startChar, endChar];
 }

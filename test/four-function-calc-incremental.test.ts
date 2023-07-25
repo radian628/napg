@@ -1,64 +1,26 @@
 import { test, expect, describe } from "@jest/globals";
 import { evalFFC, ffcParser } from "./four-function-calc";
-import { RopeLeaf, replace } from "../dist";
-
-function rangeIntersect(
-  start1: number,
-  end1: number,
-  start2: number,
-  end2: number
-) {
-  return start1 <= end2 && end1 >= start2;
-}
+import { LivingDocument } from "../dist";
 
 describe("incremental parsing test", () => {
-  // test("1 + 3 -> 1 + 2 + 3", () => {
-  //   const rope = new RopeLeaf("1 + 3");
-  //   const parser = ffcParser(rope.iter(0));
+  test("1 + 3 -> 1 + 2 + 3", () => {
+    const doc = new LivingDocument("1 + 3", (iter) => ffcParser(iter));
 
-  //   const value = evalFFC(parser.exec(() => false));
+    expect(evalFFC(doc.parse())).toEqual(4);
 
-  //   expect(value).toEqual(4);
+    doc.replace(3, 3, " 2 +");
 
-  //   console.log("first eval done ");
-
-  //   const updatedRope = replace(rope, 4, 4, new RopeLeaf("2 + ")).replacedRope;
-
-  //   expect(updatedRope.str()).toEqual("1 + 2 + 3");
-  //   expect(parser.position.rope.str()).toEqual("1 + ");
-
-  //   const value2 = evalFFC(
-  //     parser.exec((start, end) => {
-  //       const startNum = start.index();
-  //       const endNum = end.index();
-
-  //       return rangeIntersect(startNum, endNum, 4, 8);
-  //     })
-  //   );
-
-  //   expect(value2).toEqual(6);
-  // });
+    expect(evalFFC(doc.parse())).toEqual(6);
+  });
 
   test("(1 + 2 + 3) + (4 + 4) -> (1 + 2 + 5 + 3) + (4 + 4)", () => {
-    const rope = new RopeLeaf("(1 + 2 + 3) + (4 + 4)");
-    const parser = ffcParser(rope.iter(0));
-
-    expect(evalFFC(parser.exec(() => false))).toEqual(14);
-
-    const updatedRope = replace(rope, 6, 6, new RopeLeaf(" + 5")).replacedRope;
-
-    expect(updatedRope.str()).toEqual("(1 + 2 + 5 + 3) + (4 + 4)");
-    expect(parser.position.rope.str()).toEqual("(1 + 2");
-
-    const value2 = evalFFC(
-      parser.exec((start, end) => {
-        const startNum = start.index();
-        const endNum = end.index();
-
-        return rangeIntersect(startNum, endNum, 5, 10);
-      })
+    const doc = new LivingDocument("(1 + 2 + 3) + (4 + 4)", (iter) =>
+      ffcParser(iter)
     );
+    expect(evalFFC(doc.parse())).toEqual(14);
 
-    expect(value2).toEqual(19);
+    doc.replace(6, 6, " + 5");
+
+    expect(evalFFC(doc.parse())).toEqual(19);
   });
 });
