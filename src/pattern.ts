@@ -103,6 +103,7 @@ export const tokens = {
     while (true) {
       const char = lexer.next(1);
       if (char.length === 0) {
+        if (str.length === 0) lexer.err("Expected a string literal.");
         return str;
       } else if (specialSymbols.includes(char) && str[str.length - 1] !== "%") {
         lexer.prev(1);
@@ -113,6 +114,9 @@ export const tokens = {
   }),
   char: token((lexer) => {
     const char = lexer.next(1);
+    if (char === "") {
+      lexer.err("Unexpected end of input.");
+    }
     if (char === "%") {
       const char2 = lexer.next(1);
       return char2;
@@ -163,7 +167,10 @@ function parseCharacterSet(
     operator: "|",
     operands: [],
   };
-  while (!p.isNext(tokens.closeSquare)) {
+  while (
+    !p.isNext(tokens.closeSquare) &&
+    node.operands[node.operands.length - 1]?.type !== "Error"
+  ) {
     node.operands.push(p.parse(characterSetItemParselet, 0));
   }
   p.lex(tokens.closeSquare);
@@ -380,7 +387,9 @@ export function compilePatternTree(tree: PositionedNode): number[] {
       return range(tree.startChar, tree.endChar);
     case "Error":
       throw new Error(
-        `Error compiling pattern at position ${tree[position]}: ${tree.reason}`
+        `Error compiling pattern at position ${tree[position].start.index()}: ${
+          tree.reason
+        }`
       );
     case "Repeat": {
       const inner = compilePatternTree(tree.operand);
