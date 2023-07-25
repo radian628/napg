@@ -16,12 +16,28 @@ export type Positioned<SkipToken> = {
   };
 };
 
-export type ParserGenerics = {
-  State: unknown;
+/**
+ *
+ * @prop Error - Error node type for this parser.
+ * @prop ErrorMessage - Error message node type for this parser. Used to
+ * create error messages which are then translated into errors, so that
+ * you don't have to construct error objects every single time.
+ * @prop SkipToken - Skip token type for this parser. All skip tokens
+ * are of this type.
+ */
+export type PerParserGenerics = {
   Error: object;
   ErrorMessage: unknown;
   SkipToken: unknown;
-  MyOutputType: object;
+};
+/**
+ * @prop Node - The type of node that this parselet produces.
+ * @prop State - The parse state associated with this parselet
+ * that will be passed in when it is called.
+ */
+export type PerParseletGenerics = {
+  Node: object;
+  State: unknown;
 };
 
 export type ParserOptions<
@@ -44,43 +60,38 @@ export type SkipTokensOf<SkipToken, ErrorMessage> = Token<
   ErrorMessage
 >[];
 
-export interface Parser<G extends ParserGenerics> {
-  parse<
-    NewOutputType extends object,
-    NewState,
-    G2 extends Swap<G, { MyOutputType: NewOutputType; State: NewState }>
-  >(
-    symbol: Parselet<G2>,
-    state: G2["State"],
+export interface Parser<
+  G extends PerParserGenerics,
+  PG extends PerParseletGenerics
+> {
+  parse<PG2 extends PerParseletGenerics>(
+    symbol: Parselet<G, PG2>,
+    state: PG2["State"],
     isInRange: (start: RopeIter, end: RopeIter) => boolean
   ): [
     (
-      | (G2["MyOutputType"] & Positioned<G["SkipToken"]>)
+      | (PG2["Node"] & Positioned<G["SkipToken"]>)
       | (G["Error"] & Positioned<G["SkipToken"]>)
     ),
-    Parser<G>
+    Parser<G, PG>
   ];
   lex<TokenType>(
     symbol: Token<TokenType, G["ErrorMessage"]>
-  ): [TokenType | G["Error"], Parser<G>];
-  state: G["State"];
+  ): [TokenType | G["Error"], Parser<G, PG>];
+  state: PG["State"];
   position: RopeIter;
-  clone<
-    NewOutputType extends object,
-    NewState,
-    G2 extends Swap<G, { MyOutputType: NewOutputType; State: NewState }>
-  >(
-    parselet: Parselet<G2>,
-    state: G2["State"]
-  ): Parser<G2>;
+  clone<PG2 extends PerParseletGenerics>(
+    parselet: Parselet<G, PG2>,
+    state: PG2["State"]
+  ): Parser<G, PG2>;
   options: ParserOptions<Pick<G, "Error" | "ErrorMessage">>;
-  parselet: Parselet<G>;
+  parselet: Parselet<G, PG>;
   err(msg: G["ErrorMessage"]): never;
   isErr<OutputType>(node: OutputType | G["Error"]): node is G["Error"];
   skipTokens: SkipTokensOf<G["SkipToken"], G["ErrorMessage"]>;
   exec: (
     isInRange: (start: RopeIter, end: RopeIter) => boolean
-  ) => G["MyOutputType"] & Positioned<G["SkipToken"]>;
+  ) => PG["Node"] & Positioned<G["SkipToken"]>;
 }
 
 export interface Lexer {
@@ -99,12 +110,15 @@ export type Token<TokenType, ErrorMessage> = {
   lex(lexer: LexerInterface<ErrorMessage>): [TokenType, Lexer];
 };
 
-export type Parselet<G extends ParserGenerics> = {
+export type Parselet<
+  G extends PerParserGenerics,
+  PG extends PerParseletGenerics
+> = {
   parse(
-    parser: Parser<G>,
+    parser: Parser<G, PG>,
     skipTokens: G["SkipToken"][],
     isInRange: (start: RopeIter, end: RopeIter) => boolean
-  ): [G["MyOutputType"] | G["Error"], Parser<G>];
+  ): [PG["Node"] | G["Error"], Parser<G, PG>];
 };
 
 /**
@@ -132,10 +146,10 @@ export function lexerFromString(iter: RopeIter): Lexer {
  * @param skipTokens - Skippable tokens that are found will be appended to this list.
  * @returns The parser snapshot after parsing skippable tokens.
  */
-export function eliminateSkipTokens<G extends ParserGenerics>(
-  parser: Parser<G>,
-  skipTokens: G["SkipToken"][]
-) {
+export function eliminateSkipTokens<
+  G extends PerParserGenerics,
+  PG extends PerParseletGenerics
+>(parser: Parser<G, PG>, skipTokens: G["SkipToken"][]) {
   let parserToReturn = parser;
 
   // eslint-disable-next-line no-constant-condition
@@ -168,16 +182,19 @@ export function eliminateSkipTokens<G extends ParserGenerics>(
  * @param options - Some parser options for creating error messages.
  * @returns A parser snapshot located at the chosen position.
  */
-export function parserFromLexer<G extends ParserGenerics>(
+export function parserFromLexer<
+  G extends PerParserGenerics,
+  PG extends PerParseletGenerics
+>(
   lexer: Lexer,
-  state: G["State"],
-  parselet: Parselet<G>,
+  state: PG["State"],
+  parselet: Parselet<G, PG>,
   skipTokensList: SkipTokensOf<G["SkipToken"], G["ErrorMessage"]>,
   options: ParserOptions<{
     ErrorMessage: G["ErrorMessage"];
     Error: G["Error"];
   }>
-): Parser<G> {
+): Parser<G, PG> {
   return {
     exec(isInRange: (start: RopeIter, end: RopeIter) => boolean) {
       return this.parse(this.parselet, this.state, isInRange)[0];
@@ -221,31 +238,12 @@ export function parserFromLexer<G extends ParserGenerics>(
         }
       }
     },
-    clone<G2 extends Swap<G, { MyOutputType: object; State: unknown }>>(
-      parselet: Parselet<G2>,
-      state: G2["State"]
-    ) {
-      return parserFromLexer<G2>(
-        lexer,
-        state,
-        parselet,
-        // @ts-expect-error this constraint is satisfied
-        this.skipTokens,
-        options
-      );
+    clone(parselet, state) {
+      return parserFromLexer(lexer, state, parselet, this.skipTokens, options);
     },
-    // @ts-expect-error this constraint is satisfied
-    parse<
-      Node extends object,
-      State,
-      P extends Parselet<Swap<G, { MyOutputType: Node; State: State }>>
-    >(
-      symbol: P,
-      state: State,
-      isInRange: (start: RopeIter, end: RopeIter) => boolean
-    ) {
+    parse(symbol, state, isInRange) {
       // eslint-disable-next-line @typescript-eslint/no-this-alias
-      let parserToReturn: Parser<G> = this;
+      let parserToReturn: Parser<G, PG> = this;
 
       const startPosition = parserToReturn.position;
 
@@ -261,11 +259,7 @@ export function parserFromLexer<G extends ParserGenerics>(
         isInRange
       );
 
-      // @ts-expect-error actually, it does fulfill the constraint
-      parserToReturn = parsedOutput[1].clone<G["MyOutputType"], G["State"], G>(
-        this.parselet,
-        this.state
-      );
+      parserToReturn = parsedOutput[1].clone(this.parselet, this.state);
       const outputToReturn2 = parsedOutput[0];
       const outputToReturn = outputToReturn2 as typeof outputToReturn2 &
         Positioned<G>;

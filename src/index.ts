@@ -3,7 +3,8 @@ import {
   Lexer,
   Parselet,
   Parser,
-  ParserGenerics,
+  PerParseletGenerics,
+  PerParserGenerics,
   Positioned,
   Token,
   eliminateSkipTokens,
@@ -22,8 +23,9 @@ export {
   lexerFromString,
   position,
   Positioned,
-  ParserGenerics,
   skipTokens,
+  PerParseletGenerics,
+  PerParserGenerics,
 } from "./immutable-api.js";
 
 export {
@@ -106,13 +108,16 @@ export function token<TokenType, ErrorMessage>(
 /**
  * Should not be created directly. Represents an interface for parsing.
  */
-export interface MutableParserInterface<G extends ParserGenerics> {
-  parse<G2 extends ParserGenerics>(
-    symbol: Parselet<G2>,
-    state: G2["State"]
+export interface MutableParserInterface<
+  G extends PerParserGenerics,
+  PG extends PerParseletGenerics
+> {
+  parse<PG2 extends PerParseletGenerics>(
+    symbol: Parselet<G, PG2>,
+    state: PG2["State"]
   ):
-    | (G2["MyOutputType"] & Positioned<G2["SkipToken"]>)
-    | (G["Error"] & Positioned<G2["SkipToken"]>);
+    | (PG2["Node"] & Positioned<G["SkipToken"]>)
+    | (G["Error"] & Positioned<G["SkipToken"]>);
   lex<OutputType>(symbol: Token<OutputType, G["ErrorMessage"]>): OutputType;
   lexFirstMatch<OutputType>(
     tokens: Token<OutputType, G["ErrorMessage"]>[],
@@ -120,10 +125,10 @@ export interface MutableParserInterface<G extends ParserGenerics> {
   ): OutputType;
   err(msg: G["ErrorMessage"]): never;
   isErr<OutputType>(node: OutputType | G["Error"]): node is G["Error"];
-  state: G["State"];
+  state: PG["State"];
   isNext<OutputType>(symbol: Token<OutputType, G["ErrorMessage"]>): boolean;
-  getParserSnapshot(): Parser<G>;
-  setParserSnapshot(snapshot: Parser<G>): void;
+  getParserSnapshot(): Parser<G, PG>;
+  setParserSnapshot(snapshot: Parser<G, PG>): void;
 }
 
 /**
@@ -132,15 +137,14 @@ export interface MutableParserInterface<G extends ParserGenerics> {
  * @returns A function that returns a parselet with all the generics from
  * `makeParseletBuilder` applied.
  */
-export function makeParseletBuilder<
-  G extends Omit<ParserGenerics, "MyOutputType" | "State">
->() {
+export function makeParseletBuilder<G extends PerParserGenerics>() {
   return <State, NodeType extends object>(
     ...args: Parameters<
       typeof parselet<
-        Omit<G, "MyOutputType" | "State"> & {
+        G,
+        {
           State: State;
-          MyOutputType: NodeType;
+          Node: NodeType;
         }
       >
     >
@@ -154,14 +158,17 @@ export function makeParseletBuilder<
  * @param eq - Test if two parse states are equal.
  * @returns A parselet, which can be used to parse nodes.
  */
-export function parselet<G extends ParserGenerics>(
-  fn: (parser: MutableParserInterface<G>) => G["MyOutputType"] | G["Error"],
-  hash: (state: G["State"]) => number,
-  eq: (a: G["State"], b: G["State"]) => boolean
-): Parselet<G> {
+export function parselet<
+  G extends PerParserGenerics,
+  PG extends PerParseletGenerics
+>(
+  fn: (parser: MutableParserInterface<G, PG>) => PG["Node"] | G["Error"],
+  hash: (state: PG["State"]) => number,
+  eq: (a: PG["State"], b: PG["State"]) => boolean
+): Parselet<G, PG> {
   const cache = new HashTable<
-    G["State"],
-    Map<RopeIter, [G["MyOutputType"], Parser<G>]>
+    PG["State"],
+    Map<RopeIter, [PG["Node"], Parser<G, PG>]>
   >((key) => hash(key), eq);
 
   return {
@@ -179,9 +186,9 @@ export function parselet<G extends ParserGenerics>(
         }
       }
 
-      let ret: [G["MyOutputType"], Parser<G>];
+      let ret: [PG["Node"], Parser<G, PG>];
 
-      let newParser = parser as Parser<G>;
+      let newParser = parser;
       let encounteredErrNormally = false;
       try {
         const output = fn({
@@ -352,16 +359,20 @@ function rangeIntersect(
 /**
  * @param iter - The iterator at which parsing is starting.
  */
-export type GetParserCallback<G extends ParserGenerics> = (
-  iter: RopeIter
-) => Parser<G>;
+export type GetParserCallback<
+  G extends PerParserGenerics,
+  PG extends PerParseletGenerics
+> = (iter: RopeIter) => Parser<G, PG>;
 
 /**
  * Represents a text document that can change and be incrementally re-parsed.
  */
-export class LivingDocument<G extends ParserGenerics> {
+export class LivingDocument<
+  G extends PerParserGenerics,
+  PG extends PerParseletGenerics
+> {
   data: Rope;
-  getParser: (rope: RopeIter) => Parser<G>;
+  getParser: (rope: RopeIter) => Parser<G, PG>;
   pendingChanges: { start: number; end: number }[];
 
   /**
@@ -370,7 +381,7 @@ export class LivingDocument<G extends ParserGenerics> {
    * @param getParser - Gets the initial parser when re-parsing.
    *
    */
-  constructor(data: string, getParser: GetParserCallback<G>) {
+  constructor(data: string, getParser: GetParserCallback<G, PG>) {
     this.data = new RopeLeaf(data);
     this.getParser = getParser;
     this.pendingChanges = [];

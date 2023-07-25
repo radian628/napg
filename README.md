@@ -13,4 +13,6 @@ Due to the constraints above, NAPG is more suited toward writing compilers and p
 
 ## Okay, but how do I use it?
 
-[Here is a complete example use case for a four-function calculator.](test/four-function-calc.ts)
+[Here is a complete example use case for a four-function calculator.](https://github.com/radian628/napg/blob/main/test/four-function-calc.ts)
+
+[For a more complex example, here is the parser for the Regex-like language that NAPG uses for tokens.](https://github.com/radian628/napg/blob/main/src/pattern.ts)

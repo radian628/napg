@@ -36,8 +36,6 @@ export type ErrorNode = {
 };
 
 export type ParserTypes = {
-  MyOutputType: Node;
-  State: InitParseState;
   Error: ErrorNode;
   ErrorMessage: string;
   SkipToken: { type: "Success"; match: string };
@@ -166,7 +164,7 @@ const parselet = makeParseletBuilder<ParserTypes>();
 
 /** */
 function parseCharacterSet(
-  p: MutableParserInterface<Omit<ParserTypes, "State"> & { State: unknown }>
+  p: MutableParserInterface<ParserTypes, { State: unknown; Node: Node }>
 ) {
   const node: VariadicOpNode = {
     type: "VariadicOp",
@@ -358,7 +356,7 @@ const expressionParselet = parselet<InitParseState, Node>(
  */
 export function parsePattern(str: string) {
   const lexer = lexerFromString(new RopeLeaf(str).iter(0));
-  const parser = parserFromLexer<ParserTypes>(
+  const parser = parserFromLexer<ParserTypes, { State: number; Node: Node }>(
     lexer,
     0,
     expressionParselet,
