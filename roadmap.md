@@ -15,5 +15,4 @@ Future challenges:
 - Make the rope rebalance itself from time to time.
 - Make some kind of a declarative language sorta thing that runs on top of the lexer so that patterns are easy to make.
 - Add sensible default hash and eq functions. Add a parsenode prototype and stuff and add hash and eq handlers to that.
-- Add another abstraction layer because right now the interface is crawling with annoying implementation details (e.g. range invalidation handler). Either way, make it possible to "peel back the layers" if needed.
 - Fix error message positions.

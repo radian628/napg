@@ -27,7 +27,9 @@ export type StringIterator = {
   setpos: (n: number) => void;
 };
 
+/** */
 export function match(pattern: PatternIter, str: StringIterator) {
+  /** */
   function matchAny(pattern: PatternIter): number | undefined {
     const opcode = pattern.data[pattern.index] >> 25;
 
@@ -59,6 +61,7 @@ export function match(pattern: PatternIter, str: StringIterator) {
     return undefined;
   }
 
+  /** abc */
   function matchConcat(pattern: PatternIter) {
     let count = 0;
     while (!isConcatEnd(pattern.data[pattern.index])) {
@@ -72,6 +75,7 @@ export function match(pattern: PatternIter, str: StringIterator) {
     return count;
   }
 
+  /** a* */
   function matchKleeneStar(pattern: PatternIter) {
     const previndex = pattern.index;
     let count = 0;
@@ -90,6 +94,7 @@ export function match(pattern: PatternIter, str: StringIterator) {
     return count;
   }
 
+  /** a|b */
   function matchUnion(pattern: PatternIter) {
     while (!isUnionEnd(pattern.data[pattern.index])) {
       const pos = str.getpos();
@@ -112,6 +117,11 @@ export function match(pattern: PatternIter, str: StringIterator) {
   return matchAny(pattern);
 }
 
+/** Match a pattern against a string.
+ * @param pattern - Pattern to match
+ * @param str - String to match.
+ * @returns the number of characters matched, or undefined if no match.
+ */
 export function matchStr(pattern: number[], str: string) {
   let strindex = 0;
   return match(
@@ -129,7 +139,7 @@ export function matchStr(pattern: number[], str: string) {
   );
 }
 
-// string to pattern
+/** a */
 export function str(string: string) {
   if (string.length === 1) return [string.codePointAt(0) as number];
 
@@ -142,6 +152,7 @@ export function str(string: string) {
   ];
 }
 
+/** ab */
 export function concat(...args: (number[] | string)[]) {
   return [
     (2 << 24) * 4,
@@ -154,7 +165,7 @@ export function concat(...args: (number[] | string)[]) {
   ];
 }
 
-// a|b
+/** a|b */
 export function union(...args: (number[] | string)[]) {
   if (args.length === 1)
     return typeof args[0] === "string" ? str(args[0]) : args[0];
@@ -169,24 +180,27 @@ export function union(...args: (number[] | string)[]) {
   ];
 }
 
-// x*
+/** a* */
 export function kleene(opcodes: number[]) {
   return [(2 << 24) * 1, ...opcodes];
 }
 
-// x?
+/** a? */
 export function maybe(opcodes: number[]) {
   return union(opcodes, str(""));
 }
 
+/** a\{n\} */
 export function repeat(count: number, opcodes: number[]) {
   return concat(...new Array(count).fill(opcodes).flat(1));
 }
 
+/** a\{n,\} */
 export function atleast(count: number, opcodes: number[]) {
   return concat(...new Array(count).fill(opcodes).flat(1), kleene(opcodes));
 }
 
+/** a\{l,h\} */
 export function between(lo: number, hi: number, opcodes: number[]) {
   return concat(
     ...new Array(lo).fill(opcodes),
@@ -194,6 +208,7 @@ export function between(lo: number, hi: number, opcodes: number[]) {
   );
 }
 
+/** [a-z] */
 export function range(startChar: number, endChar: number) {
   return [(2 << 24) * 6 + startChar, endChar];
 }

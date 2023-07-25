@@ -35,25 +35,43 @@ export {
   RopeIterMut,
 } from "./rope.js";
 
-export { matchStr, str, kleene, union, between, atleast } from "./match.js";
-
 export { compilePattern } from "./pattern.js";
 
+export { matchStr } from "./match.js";
+
+/**
+ *
+ * @param t - Node to get the position of.
+ * @returns The positional information of this node.
+ */
 export function pos<T extends Positioned<never>>(t: T) {
   return t[position];
 }
 
-export interface MutableLexerInterface<G extends ParserGenerics> {
+/**
+ * Should not be instantiated directly. Provides an interface to
+ * assist in consuming input for lexical analysis.
+ */
+export interface MutableLexerInterface<ErrorMessage> {
   next(n: number): string;
   prev(n: number): void;
   getpos(): number;
   setpos(n: number): void;
-  err(msg: G["ErrorMessage"]): never;
+  err(msg: ErrorMessage): never;
 }
 
-export function token<TokenType, G extends ParserGenerics>(
-  fn: (iter: MutableLexerInterface<G>) => TokenType
-): Token<TokenType, G> {
+/**
+ * Create a token.
+ *
+ * @param fn - Callback function which is executed to
+ * consume input and generate the token.
+ * @returns A type of your choice that represents the token.
+ * This can be a string if that is sufficient, or even an object
+ * to represent multiple, hard-to-distinguish token types.
+ */
+export function token<TokenType, ErrorMessage>(
+  fn: (iter: MutableLexerInterface<ErrorMessage>) => TokenType
+): Token<TokenType, ErrorMessage> {
   return {
     lex(lexer) {
       let nextLexer = lexer as Lexer;
@@ -75,7 +93,7 @@ export function token<TokenType, G extends ParserGenerics>(
           const lexer2 = root(nextLexer.position.rope).iter(pos);
           nextLexer = lexerFromString(lexer2);
         },
-        err(msg: G["ErrorMessage"]) {
+        err(msg: ErrorMessage) {
           throw lexer.err(msg);
         },
       });
@@ -85,6 +103,9 @@ export function token<TokenType, G extends ParserGenerics>(
   };
 }
 
+/**
+ * Should not be created directly. Represents an interface for parsing.
+ */
 export interface MutableParserInterface<G extends ParserGenerics> {
   parse<G2 extends ParserGenerics>(
     symbol: Parselet<G2>,
@@ -92,19 +113,25 @@ export interface MutableParserInterface<G extends ParserGenerics> {
   ):
     | (G2["MyOutputType"] & Positioned<G2["SkipToken"]>)
     | (G["Error"] & Positioned<G2["SkipToken"]>);
-  lex<OutputType>(symbol: Token<OutputType, G>): OutputType;
+  lex<OutputType>(symbol: Token<OutputType, G["ErrorMessage"]>): OutputType;
   lexFirstMatch<OutputType>(
-    tokens: Token<OutputType, G>[],
+    tokens: Token<OutputType, G["ErrorMessage"]>[],
     fallbackErrorMessage: G["ErrorMessage"]
   ): OutputType;
   err(msg: G["ErrorMessage"]): never;
   isErr<OutputType>(node: OutputType | G["Error"]): node is G["Error"];
   state: G["State"];
-  isNext<OutputType>(symbol: Token<OutputType, G>): boolean;
+  isNext<OutputType>(symbol: Token<OutputType, G["ErrorMessage"]>): boolean;
   getParserSnapshot(): Parser<G>;
   setParserSnapshot(snapshot: Parser<G>): void;
 }
 
+/**
+ * Helper function for generating parselets without needing to
+ * specify a bunch of generics each time.
+ * @returns A function that returns a parselet with all the generics from
+ * `makeParseletBuilder` applied.
+ */
 export function makeParseletBuilder<
   G extends Omit<ParserGenerics, "MyOutputType" | "State">
 >() {
@@ -120,6 +147,13 @@ export function makeParseletBuilder<
   ) => parselet(...args);
 }
 
+/**
+ * Directly create a parselet without having to go through makeParseletBuilder.
+ * @param fn - The callback function that's used to create the parse node.
+ * @param hash - Hash function for parse state.
+ * @param eq - Test if two parse states are equal.
+ * @returns A parselet, which can be used to parse nodes.
+ */
 export function parselet<G extends ParserGenerics>(
   fn: (parser: MutableParserInterface<G>) => G["MyOutputType"] | G["Error"],
   hash: (state: G["State"]) => number,
@@ -220,6 +254,9 @@ export function parselet<G extends ParserGenerics>(
   };
 }
 
+/**
+ *
+ */
 function multiMapSet<
   K,
   V,
@@ -237,6 +274,9 @@ function multiMapSet<
   callback(v);
 }
 
+/**
+ *
+ */
 function nestedMapDelete<
   K,
   V extends Map<unknown, unknown>,
@@ -258,12 +298,19 @@ function nestedMapDelete<
   }
 }
 
-export function matchToken<T, G extends ParserGenerics>(
+/**
+ * Create a token based on pattern bytecode.
+ * @param pattern - Pattern bytecode. This can be created with `compilePattern`.
+ * @param onMatch - Construct a token object (or string, etc) from a matched string.
+ * @param err - Error message to display if there is no match.
+ * @returns A token object.
+ */
+export function matchToken<T, ErrorMessage>(
   pattern: number[],
   onMatch: (str: string) => T,
-  err: G["ErrorMessage"]
+  err: ErrorMessage
 ) {
-  return token<T, G>((iter) => {
+  return token<T, ErrorMessage>((iter) => {
     const iterStart = iter.getpos();
 
     const matches = match(
@@ -290,6 +337,9 @@ export function matchToken<T, G extends ParserGenerics>(
   });
 }
 
+/**
+ *
+ */
 function rangeIntersect(
   start1: number,
   end1: number,
@@ -299,22 +349,49 @@ function rangeIntersect(
   return start1 <= end2 && end1 >= start2;
 }
 
+/**
+ * @param iter - The iterator at which parsing is starting.
+ */
+export type GetParserCallback<G extends ParserGenerics> = (
+  iter: RopeIter
+) => Parser<G>;
+
+/**
+ * Represents a text document that can change and be incrementally re-parsed.
+ */
 export class LivingDocument<G extends ParserGenerics> {
   data: Rope;
   getParser: (rope: RopeIter) => Parser<G>;
   pendingChanges: { start: number; end: number }[];
 
-  constructor(data: string, getParser: (rope: RopeIter) => Parser<G>) {
+  /**
+   *
+   * @param data - Initial text document data.
+   * @param getParser - Gets the initial parser when re-parsing.
+   *
+   */
+  constructor(data: string, getParser: GetParserCallback<G>) {
     this.data = new RopeLeaf(data);
     this.getParser = getParser;
     this.pendingChanges = [];
   }
 
+  /**
+   * Replace a section of the document.
+   * @param start - Start index of the slice that should be removed and replaced.
+   * @param end - End index of the slice that should be removed and replace.
+   * @param str - String to replace the slice with.
+   */
   replace(start: number, end: number, str: string) {
     this.pendingChanges.push({ start, end });
     this.data = replace(this.data, start, end, new RopeLeaf(str)).replacedRope;
   }
 
+  /**
+   * Parse the document, incrementally if possible.
+   * @returns The parsenode corresponding to the type of parser you supplied
+   * to this function.
+   */
   parse() {
     const result = this.getParser(this.data.iter(0)).exec((start, end) => {
       const iStart = start.index();

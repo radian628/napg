@@ -211,6 +211,15 @@ export class RopeBranch {
   }
 }
 
+/**
+ * Replace a section of a rope with another rope.
+ * @param rope - Rope to replace.
+ * @param start - start index to do the replacement.
+ * @param end - End index to do the replacement.
+ * @param replacement - Rope to insert as the replacement.
+ * @returns An object containing the rope with the replacement applied (`replacedRope`)
+ * and the section that was removed (`removedSection`).
+ */
 export function replace(
   rope: Rope,
   start: number,
@@ -332,6 +341,11 @@ export class RopeIterMut {
   }
 }
 
+/**
+ * Get the root node of a rope node.
+ * @param rope - Rope for which to get the root node.
+ * @returns The root node.
+ */
 export function root(rope: Rope) {
   while (rope.parent) {
     rope = rope.parent;

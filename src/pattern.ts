@@ -7,16 +7,20 @@ import {
 import {
   MutableParserInterface,
   RopeLeaf,
-  atleast,
-  between,
-  kleene,
   makeParseletBuilder,
   matchToken,
-  str,
   token,
-  union,
 } from "./index.js";
-import { concat, maybe, range } from "./match.js";
+import {
+  atleast,
+  between,
+  concat,
+  kleene,
+  maybe,
+  range,
+  str,
+  union,
+} from "./match.js";
 
 export type Node =
   | StrNode
@@ -131,6 +135,7 @@ export const tokens = {
   ),
 };
 
+/** */
 function unescapePatternString(str: string) {
   let out = "";
 
@@ -159,6 +164,7 @@ const bindingPowers: Record<string, number | undefined> = {
 
 const parselet = makeParseletBuilder<ParserTypes>();
 
+/** */
 function parseCharacterSet(
   p: MutableParserInterface<Omit<ParserTypes, "State"> & { State: unknown }>
 ) {
@@ -345,6 +351,11 @@ const expressionParselet = parselet<InitParseState, Node>(
   ipsEq
 );
 
+/**
+ *
+ * @param str - Pattern string to parse
+ * @returns A pattern syntax tree.
+ */
 export function parsePattern(str: string) {
   const lexer = lexerFromString(new RopeLeaf(str).iter(0));
   const parser = parserFromLexer<ParserTypes>(
@@ -381,6 +392,11 @@ export function parsePattern(str: string) {
   return parser.exec(() => false);
 }
 
+/**
+ *
+ * @param tree - Pattern syntax tree to compile into bytecode.
+ * @returns Pattern bytecode.
+ */
 export function compilePatternTree(tree: PositionedNode): number[] {
   switch (tree.type) {
     case "Range":
@@ -425,6 +441,12 @@ export function compilePatternTree(tree: PositionedNode): number[] {
   }
 }
 
+/**
+ *
+ * @param str - The string representing the pattern. Uses a Regex-like syntax.
+ * Note that `%` is the escape character, not `\`.
+ * @returns Bytecode representing the compiled pattern.
+ */
 export function compilePattern(str: string) {
   return compilePatternTree(parsePattern(str));
 }
