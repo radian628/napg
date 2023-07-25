@@ -62,7 +62,7 @@ export type PositionedNode = Node &
 // This type is never instantiated directly. Instead, it acts as a "bundle"
 // of generics to supply to various functions so you don't have to supply
 // all of them individually.
-export type ParserTypes = {
+type ParserTypes = {
   MyOutputType: ExpressionNode;
   State: InitParseState;
   Error: ErrorNode;
@@ -71,8 +71,9 @@ export type ParserTypes = {
 };
 
 // Helper function for creating tokens from a list of possible alternative chars
+// while retaining type safety for the specific chars matched
 function charToken<T extends string>(alts: readonly T[]) {
-  return token<TokenSuccess<T>, ParserTypes>((lexer) => {
+  return token<TokenSuccess<T>, string>((lexer) => {
     const tkn = lexer.next(1);
     if ((alts as readonly string[]).includes(tkn)) {
       return {
@@ -232,7 +233,7 @@ export function ffcParser(src: RopeIter) {
   const lexer = lexerFromString(src);
 
   // make the parser
-  return parserFromLexer<ParserTypes>(
+  return parserFromLexer(
     lexer,
     { bindingPower: 0 }, // Initial parse state
     expressionParselet, // Initial parselet
