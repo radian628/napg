@@ -21,7 +21,7 @@
 <li>Parsers should have support for memoization to eliminate the performance penalty of backtracking.</li>
 <li>Parsers should be able to function incrementally--- i.e. a change to a file shouldn&#39;t require that the entire file is re-parsed.</li>
 </ol>
-<p>Due to the constraints above, NAPG is more suited toward writing compilers and programming language tooling, as opposed to, say,</p>
+<p>Due to the constraints above, NAPG is more suited toward writing compilers and tooling for <em>programming languages</em>, as opposed to, say, writing something to parse 10GB of JSON, or other massive amounts of data. Feature-completeness, developer experience, and expressivity are valued above performance for this project.</p>
 <a id="md:okay-but-how-do-i-use-it" class="tsd-anchor"></a><h2><a href="#md:okay-but-how-do-i-use-it">Okay, but how do I use it?</a></h2><p><a href="https://github.com/radian628/napg/blob/main/test/four-function-calc.ts">Here is a complete example use case for a four-function calculator.</a></p>
 <p><a href="https://github.com/radian628/napg/blob/main/src/pattern.ts">For a more complex example, here is the parser for the Regex-like language that NAPG uses for tokens.</a></p>
 </div></div>

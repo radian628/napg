@@ -9,7 +9,7 @@ NAPG is a library for making recursive-descent parsers _in_ TypeScript, _with_ T
 5. Parsers should have support for memoization to eliminate the performance penalty of backtracking.
 6. Parsers should be able to function incrementally--- i.e. a change to a file shouldn't require that the entire file is re-parsed.
 
-Due to the constraints above, NAPG is more suited toward writing compilers and programming language tooling, as opposed to, say,
+Due to the constraints above, NAPG is more suited toward writing compilers and tooling for _programming languages_, as opposed to, say, writing something to parse 10GB of JSON, or other massive amounts of data. Feature-completeness, developer experience, and expressivity are valued above performance for this project.
 
 ## Okay, but how do I use it?
 
