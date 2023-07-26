@@ -1,16 +1,17 @@
 {
   "name": "napg",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Not another parser generator!",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "build": "node build.mjs",
     "make-docs": "typedoc src/index.ts --out docs"
   },
+  "repository": "https://github.com/radian628/napg",
   "type": "module",
-  "author": "",
-  "license": "ISC",
+  "author": "radian628",
+  "license": "MIT",
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
