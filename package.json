@@ -1,12 +1,13 @@
 {
   "name": "napg",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Not another parser generator!",
   "main": "dist/index.js",
   "scripts": {
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "build": "node build.mjs",
-    "make-docs": "typedoc src/index.ts --out docs"
+    "make-docs": "typedoc src/index.ts --out docs",
+    "prepublish": "npm run build"
   },
   "repository": "https://github.com/radian628/napg",
   "type": "module",
