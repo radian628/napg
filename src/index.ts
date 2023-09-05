@@ -123,6 +123,13 @@ export interface MutableParserInterface<
     tokens: Token<OutputType, G["ErrorMessage"]>[],
     fallbackErrorMessage: G["ErrorMessage"]
   ): OutputType;
+  lexMatch<OutputType, T>(
+    errorOnNoMatch: G["ErrorMessage"],
+    ...branches: [
+      Token<OutputType, G["ErrorMessage"]>,
+      (token: OutputType) => T
+    ][]
+  ): T;
   err(msg: G["ErrorMessage"]): never;
   isErr<OutputType>(node: OutputType | G["Error"]): node is G["Error"];
   state: PG["State"];
@@ -239,6 +246,17 @@ export function parselet<
             }
             encounteredErrNormally = true;
             throw newParser.options.makeErrorMessage(fallbackErrorMessage);
+          },
+          lexMatch(errorOnNoMatch, ...branches) {
+            for (const [token, fn] of branches) {
+              const [output, parser2] = newParser.lex(token);
+              if (!this.isErr(output)) {
+                newParser = parser2;
+                return fn(output);
+              }
+            }
+            encounteredErrNormally = true;
+            throw newParser.options.makeErrorMessage(errorOnNoMatch);
           },
         });
         ret = [output, newParser];

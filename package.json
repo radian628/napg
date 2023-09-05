@@ -1,6 +1,6 @@
 {
   "name": "napg",
-  "version": "0.1.1",
+  "version": "0.1.4",
   "description": "Not another parser generator!",
   "main": "dist/index.js",
   "scripts": {
@@ -26,5 +26,9 @@
   },
   "dependencies": {
     "object-hash": "^3.0.0"
-  }
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
 }
